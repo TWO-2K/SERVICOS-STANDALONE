@@ -1,0 +1,75 @@
+import { financeiroApi } from '@/shared/api/financeiroApi';
+import { supabase } from '@/shared/api/supabaseClient';
+
+export const MAX_ANEXO_SIZE = 5 * 1024 * 1024;
+
+export const ALLOWED_ANEXO_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+export function isAllowedAnexoMimeType(file) {
+  return ALLOWED_ANEXO_MIME_TYPES.includes(file.type);
+}
+
+// Upload vai direto pro Storage e so depois a servicos-api registra a linha -- se o registro
+// falhar (409 de duplicado, permissao, rede), o arquivo ficaria orfao no bucket. Apaga o upload
+// e repropaga o erro original; falha na limpeza e so logada pra nao mascarar o erro real.
+export async function registrarOuDescartarUpload(path, registrar) {
+  try {
+    return await registrar();
+  } catch (error) {
+    const { error: removeError } = await supabase.storage.from(financeiroApi.storage.bucket).remove([path]);
+    if (removeError) console.error('Falha ao descartar upload orfao:', { path, message: removeError.message });
+    throw error;
+  }
+}
+
+export async function uploadAnexo({
+  file,
+  solicitacaoId,
+  tipoAnexo = 'outros',
+  parcelaId = null,
+  sigiloso = false,
+  assinaturasNecessarias = 1,
+}) {
+  const extension = file.name.split('.').pop();
+  const path = `${solicitacaoId}/${tipoAnexo}/${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from(financeiroApi.storage.bucket)
+    .upload(path, file, { upsert: false });
+  if (uploadError) throw uploadError;
+
+  return registrarOuDescartarUpload(path, () =>
+    financeiroApi.anexos.registrar({
+      solicitacaoId,
+      parcelaId,
+      tipoAnexo,
+      nomeArquivo: file.name,
+      tipoMime: file.type || 'application/octet-stream',
+      tamanhoBytes: file.size,
+      storagePath: path,
+      sigiloso,
+      assinaturasNecessarias,
+    }),
+  );
+}
+
+// Correcao de anexo enviado errado numa solicitacao ja `pago` (ver substituir_anexo na
+// servicos-api): sobe o arquivo novo no lugar do antigo, preservando o id/linha do anexo.
+export async function substituirAnexo({ file, anexoId, solicitacaoId, tipoAnexo = 'outros', motivo }) {
+  const extension = file.name.split('.').pop();
+  const path = `${solicitacaoId}/${tipoAnexo}/${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from(financeiroApi.storage.bucket)
+    .upload(path, file, { upsert: false });
+  if (uploadError) throw uploadError;
+
+  return registrarOuDescartarUpload(path, () =>
+    financeiroApi.anexos.substituir({
+      id: anexoId,
+      storagePath: path,
+      nomeArquivo: file.name,
+      tipoMime: file.type || 'application/octet-stream',
+      tamanhoBytes: file.size,
+      motivo,
+    }),
+  );
+}

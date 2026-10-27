@@ -1,0 +1,460 @@
+import { ArrowLeft, Printer } from 'lucide-react';
+
+import { Button } from '@/shared/ui';
+import { AVARIA_TIPOS, DOCUMENTACAO_ITENS, PNEUS, SEGURANCA_ITENS } from '@/lib/checklistItens';
+import vehicleDiagram from '@/assets/oficina/vehicle-diagram.png';
+import './checklistDocumento.css';
+
+function formatDate(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleDateString('pt-BR');
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function Campo({ label, valor, className = '' }) {
+  return (
+    <div className={`flex items-center border border-black px-1 py-[2px] ${className}`}>
+      <span className="shrink-0">{label}</span>
+      <span className="ml-1 font-bold">{valor}</span>
+    </div>
+  );
+}
+
+function StatusBox({ valor }) {
+  return (
+    <div className="mx-auto flex h-[14px] w-[46px] items-center justify-center border border-black text-[7.5pt] font-bold">
+      {valor || ''}
+    </div>
+  );
+}
+
+function Check({ marcado }) {
+  return (
+    <span className="mr-1 inline-flex h-[11px] w-[11px] shrink-0 items-center justify-center border border-black align-middle text-[8pt] font-bold leading-none">
+      {marcado ? 'X' : ''}
+    </span>
+  );
+}
+
+const NIVEIS_LEGENDA = [
+  { valor: 0, label: 'V' },
+  { valor: 0.25, label: '1/4' },
+  { valor: 0.5, label: '1/2' },
+  { valor: 0.75, label: '3/4' },
+  { valor: 1, label: 'C' },
+];
+
+function FuelGauge({ nivel }) {
+  const v = Math.max(0, Math.min(1, nivel ?? 0.5));
+  const cx = 50;
+  const cy = 48;
+  const r = 38;
+  const strokeWidth = 7;
+
+  const angleFor = (val) => 180 - val * 180;
+  const toXY = (val, radius) => {
+    const rad = (angleFor(val) * Math.PI) / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy - radius * Math.sin(rad) };
+  };
+
+  const start = toXY(0, r);
+  const end = toXY(1, r);
+  const needleEnd = toXY(v, r - strokeWidth - 2);
+
+  return (
+    <svg viewBox="-8 -9 116 67" className="h-[87px] w-[151px] shrink-0">
+      <path
+        d={`M ${start.x} ${start.y} A ${r} ${r} 0 0 1 ${end.x} ${end.y}`}
+        fill="none"
+        stroke="#F5A623"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      {NIVEIS_LEGENDA.map((nivelItem) => {
+        const tickInner = toXY(nivelItem.valor, r - strokeWidth / 2 - 1);
+        const tickOuter = toXY(nivelItem.valor, r + strokeWidth / 2 + 1);
+        const labelPos = toXY(nivelItem.valor, r + strokeWidth / 2 + 8);
+        return (
+          <g key={nivelItem.valor}>
+            <line
+              x1={tickInner.x}
+              y1={tickInner.y}
+              x2={tickOuter.x}
+              y2={tickOuter.y}
+              stroke="#000"
+              strokeWidth={0.8}
+            />
+            <text
+              x={labelPos.x}
+              y={labelPos.y}
+              fontSize="7"
+              fontWeight="bold"
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {nivelItem.label}
+            </text>
+          </g>
+        );
+      })}
+      <line x1={cx} y1={cy} x2={needleEnd.x} y2={needleEnd.y} stroke="#E30613" strokeWidth={1.6} />
+      <circle cx={cx} cy={cy} r={2.4} fill="#000" />
+    </svg>
+  );
+}
+
+const PNEU_LINHAS = [
+  { key: 'ok', label: 'Dentro das especs.', cor: '#00A651' },
+  { key: 'atencao', label: 'Atenção', cor: '#FFF200' },
+  { key: 'risco', label: 'Risco à Segurança', cor: '#E30613' },
+];
+
+const COMUNICACOES_OPCOES = [
+  { key: 'concessionarias', label: 'Da rede de concessionárias e/ou reparadores autorizados da marca' },
+  { key: 'grupo', label: 'De qualquer empresa pertencente ao mesmo grupo' },
+  { key: 'parceiro', label: 'De qualquer parceiro da marca' },
+];
+
+export default function ChecklistDocumento({ row, avarias = [], itensPorCategoria = {}, onVoltar, toolbarOculta = false }) {
+  const documentacao = itensPorCategoria.documentacao || {};
+  const seguranca = itensPorCategoria.seguranca || {};
+  const pneus = itensPorCategoria.pneus || {};
+
+  // Numeracao sequencial das avarias que tem foto vinculada (hoje so
+  // "amassado" oferece esse fluxo, ver AvariaMap.jsx) -- usada pra ligar
+  // visualmente o marcador no diagrama (pagina 1) a foto correspondente na
+  // pagina de fotos (pagina 2).
+  const fotosPorAvariaId = new Map();
+  (row.fotos || []).forEach((foto) => {
+    if (foto.avaria_id) fotosPorAvariaId.set(foto.avaria_id, foto);
+  });
+  const numeroPorAvariaId = new Map();
+  avarias.forEach((avaria) => {
+    if (fotosPorAvariaId.has(avaria.id)) numeroPorAvariaId.set(avaria.id, numeroPorAvariaId.size + 1);
+  });
+
+  return (
+    <div>
+      {!toolbarOculta && (
+        <div className="no-print mb-4 flex justify-between rounded-lg border border-border bg-card p-3">
+          <Button type="button" variant="outline" size="sm" onClick={onVoltar}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar
+          </Button>
+          <Button type="button" variant="default" size="sm" onClick={() => window.print()}>
+            <Printer className="mr-2 h-4 w-4" />
+            Salvar PDF
+          </Button>
+        </div>
+      )}
+
+      <div className="doc-sheet mx-auto shadow-[0_10px_40px_-12px_rgba(0,0,0,0.35)]">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <div className="text-[20pt] font-black leading-none">{row.unidade_nome || ' '}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 bg-[#E30613] py-[3px] text-center text-[12pt] font-bold text-white">
+          CHECK LIST DE SERVIÇOS
+          {row.numero ? <span className="ml-2 text-[8pt] font-normal">Nº {row.numero}</span> : null}
+        </div>
+
+        <div className="mt-1 grid grid-cols-[1fr_1fr_0.8fr_0.8fr]">
+          <Campo label="Cliente:" valor={row.cliente_nome} className="col-span-2" />
+          <Campo label="O.S.:" valor={row.os} />
+          <Campo label="Data:" valor={formatDate(row.data)} />
+          <Campo label="Placa:" valor={row.veiculo_placa} />
+          <Campo label="Modelo:" valor={row.veiculo_modelo} />
+          <Campo label="Cor:" valor={row.veiculo_cor} />
+          <Campo label="Km:" valor={row.km} />
+        </div>
+
+        <p className="mt-1 text-[6.5pt] leading-[1.25]">
+          A inspeção do veículo é limitada a testes específicos e não inclui desmontagem e exames internos. Todo
+          esforço é feito para detectar qualquer condição anormal para o veículo testado.
+          <br />
+          A empresa e seus parceiros se isentam de responsabilidade de informar, em caso de condições
+          anormais, que não podem ser detectados pelos métodos de diagnóstico ou pelos equipamentos de teste
+          aplicados.
+        </p>
+
+        <div className="mt-1 bg-[#E9E9E9] py-[2px] text-center text-[9pt] font-bold text-[#E30613]">
+          INSPEÇÃO DO VEÍCULO
+        </div>
+
+        <div className="mt-1 flex items-center gap-1 text-[8pt] italic">
+          <Check marcado={row.pintura_suja} />
+          Veículo com pintura suja, impossibilitando inspeção/identificação de riscos e danos.
+        </div>
+
+        <div className="mt-1 flex gap-2">
+          <div className="relative w-[80mm] shrink-0">
+            <img src={vehicleDiagram} alt="Diagrama do veículo" className="w-full" />
+            {avarias.map((avaria) => {
+              const tipo = AVARIA_TIPOS.find((t) => t.key === avaria.tipo);
+              const numeroFoto = numeroPorAvariaId.get(avaria.id);
+              return (
+                <span
+                  key={avaria.id}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 text-[10pt] font-bold text-[#E30613]"
+                  style={{ left: `${avaria.pos_x}%`, top: `${avaria.pos_y}%` }}
+                >
+                  {tipo?.simbolo || '?'}
+                  {numeroFoto ? (
+                    <sup className="ml-[1px] rounded-full bg-[#E30613] px-[3px] text-[6.5pt] font-bold text-white">
+                      {numeroFoto}
+                    </sup>
+                  ) : null}
+                </span>
+              );
+            })}
+          </div>
+          <div className="flex-1">
+            <div className="bg-[#FCE6D2] p-1">
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-[7.5pt] font-semibold leading-tight">
+                  Nível de
+                  <br />
+                  combustível
+                </span>
+                <FuelGauge nivel={row.nivel_combustivel} />
+              </div>
+            </div>
+            <div className="mt-2 bg-[#D9E7F5] px-1 py-[2px] text-[8pt] font-bold">
+              Observações / Reclamações do Cliente:
+            </div>
+            <div className="mt-1 whitespace-pre-wrap text-[7.5pt] leading-[1.6]">{row.observacoes}</div>
+          </div>
+        </div>
+
+        <div className="mt-1 bg-[#FFF200] px-2 py-[2px] text-[8pt] font-bold">
+          Legenda: <span className="ml-4 text-[#E30613]">#</span> quebrado,
+          <span className="ml-2 text-[#E30613]">⚡</span> amassado,
+          <span className="ml-2 text-[#E30613]">/</span> riscado,
+          <span className="ml-2 text-[#E30613]">Θ</span> mancha
+        </div>
+
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          <div>
+            <div className="flex bg-[#BFE0EF] text-[8pt] font-bold">
+              <span className="w-[22px] border border-black px-1">01</span>
+              <span className="flex-1 border border-l-0 border-black px-1">Documentação</span>
+              <span className="w-[60px] border border-l-0 border-black text-center">Status</span>
+            </div>
+            {DOCUMENTACAO_ITENS.map((item, i) => (
+              <div key={item} className="flex text-[8pt]">
+                <span className="w-[22px] border border-t-0 border-black px-1">{i + 1}</span>
+                <span className="flex-1 border border-l-0 border-t-0 border-black px-1">{item}</span>
+                <span className="w-[60px] border border-l-0 border-t-0 border-black py-[1px]">
+                  <StatusBox valor={documentacao[item]} />
+                </span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="flex bg-[#BFE0EF] text-[8pt] font-bold">
+              <span className="w-[22px] border border-black px-1">02</span>
+              <span className="flex-1 border border-l-0 border-black px-1">Segurança</span>
+              <span className="w-[60px] border border-l-0 border-black text-center">Status</span>
+            </div>
+            {SEGURANCA_ITENS.map((item, i) => (
+              <div key={item} className="flex text-[8pt]">
+                <span className="w-[22px] border border-t-0 border-black px-1">{i + 1}</span>
+                <span className="flex-1 border border-l-0 border-t-0 border-black px-1">{item}</span>
+                <span className="w-[60px] border border-l-0 border-t-0 border-black py-[1px]">
+                  <StatusBox valor={seguranca[item]} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-1 bg-[#FFF200] px-2 py-[2px] text-center text-[8pt] font-bold">
+          Legenda: <span className="ml-6 text-[#E30613]">OK</span> = conforme
+          <span className="ml-6 text-[#E30613]">AS</span> = ausente
+          <span className="ml-6 text-[#E30613]">AV</span> = avariado
+        </div>
+
+        <div className="mt-1 flex gap-2">
+          <div className="w-[58%]">
+            <div className="flex bg-[#BFE0EF] text-[8pt] font-bold">
+              <span className="w-[22px] border border-black px-1">03</span>
+              <span className="flex-1 border border-l-0 border-black px-1">Checagem dos Pneus*</span>
+            </div>
+            <table className="w-full border-collapse text-center text-[8pt]">
+              <thead>
+                <tr>
+                  <th className="w-[38%] border border-t-0 border-black" />
+                  {PNEUS.map((p) => (
+                    <th key={p} className="border border-t-0 border-black font-bold">
+                      {p}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PNEU_LINHAS.map((linha) => (
+                  <tr key={linha.key}>
+                    <td className="border border-black pr-1 text-right">{linha.label}</td>
+                    {PNEUS.map((p) => (
+                      <td key={p} className="border border-black" style={{ backgroundColor: linha.cor }}>
+                        {pneus[p] === linha.key ? <b>X</b> : ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex-1 border border-black p-1">
+            <div className="text-center text-[7.5pt] font-bold">
+              Estou de acordo em receber informações / comunicações eletrônicas provindas:
+            </div>
+            <div className="mt-1 space-y-[2px] text-[7.5pt]">
+              {COMUNICACOES_OPCOES.map((opcao) => (
+                <div key={opcao.key} className="flex items-center">
+                  <Check marcado={(row.comunicacoes || []).includes(opcao.key)} />
+                  {opcao.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-1 text-[6.5pt] font-bold">
+          * A inspeção deverá ser realizada na presença do Cliente. Utilize a ferramenta padrão PROFUNDÍMETRO e cheque
+          a profundidade do pneu em diversos pontos.
+        </p>
+
+        <div className="mt-1 flex bg-[#BFE0EF] text-[8pt] font-bold">
+          <span className="w-[22px] border border-black px-1">04</span>
+          <span className="flex-1 border border-l-0 border-black px-1">Entrega</span>
+        </div>
+        <div className="mt-1 flex items-center text-[8pt]">
+          <Check marcado={row.entrega_conferida} />
+          Inspecionar o veículo e verificar se a condição atual corresponde a inspeção do momento da recepção.
+        </div>
+        <div className="mt-1 text-[8pt]">
+          Observações: <span className="font-bold">{row.entrega_observacoes}</span>
+        </div>
+
+        <div className="doc-line mt-[2px]" />
+        <div className="mt-2 flex items-end justify-between text-[8pt]">
+          <div>
+            Responsável pela Inspeção: <b>{row.colaborador_nome}</b>
+            {row.colaborador_assinatura_url ? (
+              <img
+                src={row.colaborador_assinatura_url}
+                alt="Assinatura do responsável"
+                className="mt-[-6px] h-8 w-36 object-contain"
+              />
+            ) : (
+              <span className="ml-1">___________________________</span>
+            )}
+          </div>
+          <div>
+            Data: <b>{formatDate(row.data)}</b>
+          </div>
+          <div>
+            Hora: <b>{formatTime(row.data_entrada)}</b>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="w-[46%] border border-[#E30613] p-1 text-center text-[7.5pt] text-[#E30613]">
+              A Concessionária não se responsabiliza por objetos deixados no interior do veículo e não
+              declarados/relacionados na ocasião do preenchimento deste Check List.
+            </div>
+            <div className="flex-1 text-center text-[8pt]">
+              {row.assinatura_entrada ? (
+                <img src={row.assinatura_entrada} alt="Assinatura do cliente na entrada" className="mx-auto h-8 object-contain" />
+              ) : (
+                <div className="h-8" />
+              )}
+              <div className="doc-line" />
+              <b>Cliente</b>
+            </div>
+            <div className="w-[110px] text-center text-[7.5pt]">
+              <div className="border border-[#E30613] italic text-[#E30613]">ENTRADA</div>
+              <div className="mt-1">{formatDate(row.data_entrada)}</div>
+              <div>{formatTime(row.data_entrada)} hs</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-[46%] border border-[#E30613] p-1 text-center text-[7.5pt] italic">
+              Declaro ter recebido de volta o veículo acima descrito, devidamente reparado e nas mesmas (ou melhores)
+              condições em que foi deixado na oficina da Concessionária.
+            </div>
+            <div className="flex-1 text-center text-[8pt]">
+              {row.assinatura_saida ? (
+                <img
+                  src={row.assinatura_saida}
+                  alt="Assinatura do cliente na saída"
+                  className="mx-auto h-8 object-contain"
+                />
+              ) : (
+                <div className="h-8" />
+              )}
+              <div className="doc-line" />
+              <b>Cliente</b>
+            </div>
+            <div className="w-[110px] text-center text-[7.5pt]">
+              <div className="border border-[#E30613] italic text-[#E30613]">SAÍDA</div>
+              <div className="mt-1">{formatDate(row.data_saida)}</div>
+              <div>{row.data_saida ? `${formatTime(row.data_saida)} hs` : '___:___ hs'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {row.fotos?.length ? (
+        <div className="doc-sheet doc-page-2 mx-auto mt-6 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.35)]">
+          <div className="flex items-center gap-3">
+            <div className="text-[14pt] font-black leading-none">{row.unidade_nome || ' '}</div>
+            <div className="flex-1 text-right text-[8pt]">
+              Cliente: <b>{row.cliente_nome}</b> · Placa: <b>{row.veiculo_placa}</b> · O.S.: <b>{row.os}</b>
+              {row.numero ? (
+                <>
+                  {' '}
+                  · Nº <b>{row.numero}</b>
+                </>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-2 bg-[#E30613] py-[3px] text-center text-[12pt] font-bold text-white">
+            FOTOS DO VEÍCULO
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {row.fotos.map((foto, i) => {
+              const avariaVinculada = avarias.find((avaria) => avaria.id === foto.avaria_id);
+              const numeroFoto = foto.avaria_id ? numeroPorAvariaId.get(foto.avaria_id) : null;
+              return (
+                <div key={foto.storage_path || i} className="border border-black p-1">
+                  <img src={foto.url} alt={foto.legenda || foto.categoria} className="h-[45mm] w-full object-cover" />
+                  <div className="mt-[2px] text-center text-[7.5pt] leading-tight">
+                    <b>
+                      {i + 1}. {foto.categoria}
+                    </b>
+                    {numeroFoto ? (
+                      <div className="font-bold text-[#E30613]">
+                        Marca nº {numeroFoto} no diagrama
+                        {avariaVinculada ? ` (${AVARIA_TIPOS.find((t) => t.key === avariaVinculada.tipo)?.label || avariaVinculada.tipo})` : ''}
+                      </div>
+                    ) : null}
+                    {foto.legenda ? <div>{foto.legenda}</div> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

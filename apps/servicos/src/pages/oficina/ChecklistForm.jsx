@@ -1,0 +1,864 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Camera, Lock, Trash2 } from 'lucide-react';
+import {
+  Button,
+  CarLoader,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Spinner,
+  Textarea,
+} from '@/shared/ui';
+
+import { oficinaApi } from '@/shared/api/oficinaApi';
+import { comprimirChecklistFoto, uploadChecklistFoto } from '@/lib/checklistFotoUpload';
+import { useAuth } from '@/lib/AuthContext';
+import ClienteVeiculoPicker from '@/components/oficina/ClienteVeiculoPicker';
+import CombustivelGauge from '@/components/oficina/CombustivelGauge';
+import AvariaMap from '@/components/oficina/AvariaMap';
+import ChecklistItensList from '@/components/oficina/ChecklistItensList';
+import FotoUploadGrid from '@/components/oficina/FotoUploadGrid';
+import AssinaturaModal from '@/components/oficina/AssinaturaModal';
+import { CATEGORIA_ITENS, MAX_FOTOS } from '@/lib/checklistItens';
+import { toUpperText } from '@/lib/oficinaFormat';
+
+const CATEGORIA_FOTO_COMBUSTIVEL = 'Medidor de combustível';
+
+const COMUNICACOES_OPCOES = [
+  { key: 'concessionarias', label: 'Da rede de concessionárias e/ou reparadores autorizados da marca' },
+  { key: 'grupo', label: 'De qualquer empresa pertencente ao mesmo grupo' },
+  { key: 'parceiro', label: 'De qualquer parceiro da marca' },
+];
+
+const DRAFT_KEY = 'app-oficina-checklist-draft';
+const ATIVO_KEY = 'app-oficina-checklist-ativo';
+const ETAPAS = [
+  'Dados do veículo',
+  'Inspeção geral',
+  'Documentação',
+  'Segurança',
+  'Pneus',
+  'Observações',
+  'Fotos',
+  'Assinatura (Entrada)',
+];
+
+function itensParaMapa(itensArray) {
+  const mapa = {};
+  itensArray.forEach((item) => {
+    if (!mapa[item.categoria]) mapa[item.categoria] = {};
+    mapa[item.categoria][item.item] = item.status;
+  });
+  return mapa;
+}
+
+export default function ChecklistForm() {
+  const { id: idParam } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const [carregando, setCarregando] = useState(Boolean(idParam));
+  const [etapa, setEtapa] = useState(0);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  const [avaliacaoId, setAvaliacaoId] = useState(idParam || null);
+  const [cliente, setCliente] = useState(null);
+  const [veiculo, setVeiculo] = useState(null);
+  const [unidadeId, setUnidadeId] = useState(user?.collaborator?.unidade_id || '');
+  const [unidades, setUnidades] = useState([]);
+  const [os, setOs] = useState('');
+  const [km, setKm] = useState('');
+  const [ehTeste, setEhTeste] = useState(false);
+  const [nivelCombustivel, setNivelCombustivel] = useState(0.5);
+  const [pinturaSuja, setPinturaSuja] = useState(false);
+  const [avarias, setAvarias] = useState([]);
+  const [itensPorCategoria, setItensPorCategoria] = useState({ documentacao: {}, seguranca: {}, pneus: {} });
+  const [observacoes, setObservacoes] = useState('');
+  const [comunicacoes, setComunicacoes] = useState([]);
+  const [fotos, setFotos] = useState([]);
+  const [assinaturaEntrada, setAssinaturaEntrada] = useState(null);
+  const [assinaturaEntradaNome, setAssinaturaEntradaNome] = useState(null);
+  const [assinaturaEntradaVinculo, setAssinaturaEntradaVinculo] = useState(null);
+  const [assinaturaEntradaDetalheVinculo, setAssinaturaEntradaDetalheVinculo] = useState(null);
+  const [modalAssinaturaEntradaAberto, setModalAssinaturaEntradaAberto] = useState(false);
+  const [avisoDonoDiferente, setAvisoDonoDiferente] = useState(null);
+  const [transferindo, setTransferindo] = useState(false);
+  const [dadosCarregados, setDadosCarregados] = useState(null);
+  const [enviandoFotoCombustivel, setEnviandoFotoCombustivel] = useState(false);
+  const [erroFotoCombustivel, setErroFotoCombustivel] = useState(null);
+  const fotoCombustivelInputRef = useRef(null);
+
+  useEffect(() => {
+    oficinaApi.unidades.listar().then(setUnidades).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!idParam && !unidadeId && user?.collaborator?.unidade_id) {
+      setUnidadeId(user.collaborator.unidade_id);
+    }
+  }, [idParam, unidadeId, user?.collaborator?.unidade_id]);
+
+  useEffect(() => {
+    if (!idParam) {
+      // Um rascunho só deve ser retomado quando a própria aba/página "/novo" é
+      // recarregada (F5) no meio do preenchimento. A Navigation Timing API
+      // (performance.getEntriesByType('navigation')) NÃO serve pra detectar isso:
+      // ela reflete como o documento inteiro foi carregado, não como esta rota do
+      // SPA foi acessada — se o usuário der F5 em QUALQUER página do app e depois
+      // navegar (client-side, sem novo load) até "Novo checklist", o tipo ainda
+      // aparece como "reload" e o rascunho antigo "sequestra" o clique, reabrindo
+      // o checklist anterior em vez de criar um novo.
+      //
+      // Em vez disso, usamos uma flag em sessionStorage que só sobrevive a um F5
+      // real desta mesma aba: ela é setada ao entrar aqui "do zero" e removida no
+      // cleanup do efeito (que roda ao desmontar/navegar pra outro lugar, mas NÃO
+      // roda num F5, já que o F5 destrói o JS inteiro sem disparar cleanup do
+      // React). Assim, se a flag já existir quando o componente monta, é porque a
+      // própria página "/novo" foi recarregada — e só nesse caso o rascunho é
+      // retomado. Qualquer outra forma de chegar aqui (lista/histórico, nova aba,
+      // digitar a URL) sempre abre em branco, mesmo com um checklist anterior
+      // ainda "em_andamento" (ele continua acessível via "Editar" na lista).
+      const jaAtivoNestaAba = sessionStorage.getItem(ATIVO_KEY) === '1';
+
+      if (!jaAtivoNestaAba) {
+        limparRascunho();
+        sessionStorage.setItem(ATIVO_KEY, '1');
+        return () => sessionStorage.removeItem(ATIVO_KEY);
+      }
+
+      const draftBruto = localStorage.getItem(DRAFT_KEY);
+      if (draftBruto) {
+        try {
+          const draft = JSON.parse(draftBruto);
+
+          // Rascunhos salvos antes da checagem abaixo existir podem apontar pra um
+          // checklist que já passou da entrada (ou já foi finalizado) — nesse caso o
+          // rascunho está obsoleto e não deve travar a criação de um novo checklist.
+          if (draft.avaliacaoId) {
+            oficinaApi.checklists
+              .obter(draft.avaliacaoId)
+              .then(({ row }) => {
+                if (!row || row.assinatura_entrada || row.status !== 'em_andamento') {
+                  localStorage.removeItem(DRAFT_KEY);
+                  setAvaliacaoId(null);
+                  setEtapa(0);
+                }
+              })
+              .catch(() => {});
+          }
+
+          setAvaliacaoId(draft.avaliacaoId || null);
+          setCliente(draft.cliente || null);
+          setVeiculo(draft.veiculo || null);
+          setUnidadeId(draft.unidadeId || user?.collaborator?.unidade_id || '');
+          setOs(draft.os || '');
+          setKm(draft.km || '');
+          setNivelCombustivel(draft.nivelCombustivel ?? 0.5);
+          setPinturaSuja(Boolean(draft.pinturaSuja));
+          setObservacoes(draft.observacoes || '');
+          setComunicacoes(Array.isArray(draft.comunicacoes) ? draft.comunicacoes : []);
+          setEtapa(draft.etapa || 0);
+        } catch {
+          // rascunho corrompido, ignora
+        }
+      }
+      return () => sessionStorage.removeItem(ATIVO_KEY);
+    }
+
+    oficinaApi.checklists
+      .obter(idParam)
+      .then(({ row, itens, avarias: avariasCarregadas }) => {
+        if (!row) return;
+        setDadosCarregados({ row, itens, avarias: avariasCarregadas });
+        setCliente(row.cliente_id ? { id: row.cliente_id, nome: row.cliente_nome, telefone: row.cliente_telefone } : null);
+        setVeiculo(
+          row.veiculo_id
+            ? { id: row.veiculo_id, placa: row.veiculo_placa, chassi: row.veiculo_chassi, modelo_nome: row.veiculo_modelo, cor: row.veiculo_cor }
+            : null,
+        );
+        setUnidadeId(row.unidade_id || '');
+        setOs(row.os || '');
+        setKm(row.km ?? '');
+        setNivelCombustivel(row.nivel_combustivel ?? 0.5);
+        setPinturaSuja(Boolean(row.pintura_suja));
+        setObservacoes(row.observacoes || '');
+        setComunicacoes(Array.isArray(row.comunicacoes) ? row.comunicacoes : []);
+        setFotos(row.fotos || []);
+        setAssinaturaEntrada(row.assinatura_entrada || null);
+        setAssinaturaEntradaNome(row.assinatura_entrada_nome || null);
+        setAssinaturaEntradaVinculo(row.assinatura_entrada_vinculo || null);
+        setAssinaturaEntradaDetalheVinculo(row.assinatura_entrada_detalhe_vinculo || null);
+        setAvarias(avariasCarregadas || []);
+        setItensPorCategoria((prev) => ({ ...prev, ...itensParaMapa(itens || []) }));
+        if (row.assinatura_entrada) {
+          setEtapa(ETAPAS.length - 1);
+        }
+      })
+      .finally(() => setCarregando(false));
+  }, [idParam]);
+
+  useEffect(() => {
+    if (idParam) return;
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        avaliacaoId,
+        cliente,
+        veiculo,
+        unidadeId,
+        os,
+        km,
+        nivelCombustivel,
+        pinturaSuja,
+        observacoes,
+        comunicacoes,
+        etapa,
+      }),
+    );
+  }, [idParam, avaliacaoId, cliente, veiculo, unidadeId, os, km, nivelCombustivel, pinturaSuja, observacoes, comunicacoes, etapa]);
+
+  // Cliente selecionado antes do veiculo: sugere os veiculos ja vinculados a ele (um
+  // cliente pode ter varios) em vez de obrigar o usuario a buscar o veiculo do zero.
+  // Nunca auto-seleciona sozinho (mesmo com 1 resultado so) -- so sugere, sempre com clique
+  // explicito, pra "Trocar" no campo Veiculo conseguir deixar o campo vazio de verdade (sem
+  // o proprio efeito re-selecionar o mesmo veiculo na hora e travar o usuario ali).
+  const { data: veiculosDoCliente = [] } = useQuery({
+    queryKey: ['oficina', 'cliente-veiculos', cliente?.id],
+    queryFn: () => oficinaApi.clientes.veiculos(cliente.id),
+    enabled: Boolean(cliente?.id) && !veiculo,
+    staleTime: 30_000,
+  });
+
+  // Caminho inverso: veiculo buscado/selecionado primeiro ja traz o dono atual
+  // (cliente_atual_id/cliente_atual_nome, ver veiculo_buscar) -- aproveita sem round-trip extra.
+  useEffect(() => {
+    if (veiculo?.cliente_atual_id && !cliente) {
+      setCliente({ id: veiculo.cliente_atual_id, nome: veiculo.cliente_atual_nome });
+    }
+  }, [veiculo, cliente]);
+
+  const limparRascunho = () => localStorage.removeItem(DRAFT_KEY);
+
+  const handleCancelar = () => {
+    if (idParam) {
+      navigate(`/oficina/checklists/${idParam}`, { state: dadosCarregados ? { checklistCarregado: dadosCarregados } : undefined });
+      return;
+    }
+    if (!avaliacaoId) {
+      limparRascunho();
+    }
+    navigate('/oficina/checklists');
+  };
+
+  const handleIniciarOuAtualizarDados = async () => {
+    if (!veiculo) {
+      setErro('Selecione ou cadastre o veículo.');
+      return;
+    }
+    if (!unidadeId) {
+      setErro('Selecione a unidade.');
+      return;
+    }
+
+    if (avaliacaoId) {
+      setErro(null);
+      setEtapa((atual) => atual + 1);
+      oficinaApi.checklists
+        .atualizar(avaliacaoId, { os: os || null, km: km ? Number(km) : null, unidade_id: unidadeId || null })
+        .catch((error) => {
+          setErro(error.message || 'Não foi possível salvar os dados do veículo automaticamente. Volte a esta etapa e clique em Avançar novamente.');
+        });
+      return;
+    }
+
+    setSalvando(true);
+    setErro(null);
+    try {
+      const { row, avisoDonoDiferente: aviso } = await oficinaApi.checklists.iniciar({
+        veiculoId: veiculo.id,
+        clienteId: cliente?.id,
+        unidadeId,
+        os: os || undefined,
+        km: km ? Number(km) : undefined,
+        ehTeste: user?.isOficinaAdmin && ehTeste,
+      });
+      setAvaliacaoId(row.id);
+      if (aviso) setAvisoDonoDiferente(aviso);
+      setEtapa((atual) => atual + 1);
+      queryClient.invalidateQueries({ queryKey: ['oficina', 'checklists'] });
+    } catch (error) {
+      setErro(error.message || 'Não foi possível salvar os dados do veículo.');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleSalvarInspecaoGeral = () => {
+    setErro(null);
+    setEtapa((atual) => atual + 1);
+    oficinaApi.checklists
+      .atualizar(avaliacaoId, { nivel_combustivel: nivelCombustivel, pintura_suja: pinturaSuja })
+      .catch((error) => {
+        setErro(error.message || 'Não foi possível salvar a inspeção geral automaticamente. Volte a esta etapa e clique em Avançar novamente.');
+      });
+  };
+
+  const handleAdicionarAvaria = async ({ tipo, pos_x, pos_y }) => {
+    try {
+      const row = await oficinaApi.avarias.adicionar(avaliacaoId, { tipo, posX: pos_x, posY: pos_y });
+      setAvarias((atual) => [...atual, row]);
+      return row;
+    } catch (error) {
+      setErro(error.message || 'Não foi possível registrar a avaria.');
+      return null;
+    }
+  };
+
+  const handleFotoAmassado = async (avariaId, arquivo) => {
+    const comprimido = await comprimirChecklistFoto(arquivo);
+    const foto = await uploadChecklistFoto({ file: comprimido, avaliacaoId, categoria: 'Avaria', legenda: '', avariaId });
+    setFotos((atual) => [...atual, foto]);
+  };
+
+  const handleFotoCombustivel = async (arquivo) => {
+    if (fotos.length >= MAX_FOTOS) {
+      setErroFotoCombustivel(`Máximo de ${MAX_FOTOS} fotos por checklist.`);
+      return;
+    }
+    setEnviandoFotoCombustivel(true);
+    setErroFotoCombustivel(null);
+    try {
+      const comprimido = await comprimirChecklistFoto(arquivo);
+      const foto = await uploadChecklistFoto({
+        file: comprimido,
+        avaliacaoId,
+        categoria: CATEGORIA_FOTO_COMBUSTIVEL,
+        legenda: '',
+      });
+      setFotos((atual) => [...atual, foto]);
+    } catch (error) {
+      setErroFotoCombustivel(error.message || 'Não foi possível enviar a foto.');
+    } finally {
+      setEnviandoFotoCombustivel(false);
+    }
+  };
+
+  const handleRemoverFotoCombustivel = async (foto) => {
+    setErroFotoCombustivel(null);
+    try {
+      await oficinaApi.fotos.remover(avaliacaoId, foto.storage_path);
+      setFotos((atual) => atual.filter((item) => item.storage_path !== foto.storage_path));
+    } catch (error) {
+      setErroFotoCombustivel(error.message || 'Não foi possível remover a foto.');
+    }
+  };
+
+  const handleRemoverAvaria = async (avariaId) => {
+    try {
+      await oficinaApi.avarias.remover(avariaId);
+      setAvarias((atual) => atual.filter((avaria) => avaria.id !== avariaId));
+    } catch (error) {
+      setErro(error.message || 'Não foi possível remover a avaria.');
+    }
+  };
+
+  const handleSalvarCategoria = (categoria) => {
+    const valores = itensPorCategoria[categoria] || {};
+    const todosItens = CATEGORIA_ITENS[categoria] || [];
+    const itensArray = todosItens.filter((item) => valores[item]).map((item) => ({ item, status: valores[item] }));
+
+    if (itensArray.length < todosItens.length) {
+      setErro(`Selecione um tipo para todos os itens em "${ETAPAS[etapa]}" antes de avançar.`);
+      return;
+    }
+
+    setErro(null);
+    setEtapa((atual) => atual + 1);
+    oficinaApi.itens.upsert(avaliacaoId, categoria, itensArray).catch((error) => {
+      setErro(error.message || 'Não foi possível salvar os itens automaticamente. Volte a esta etapa e clique em Avançar novamente.');
+    });
+  };
+
+  const toggleComunicacao = (key) => {
+    setComunicacoes((atual) => (atual.includes(key) ? atual.filter((item) => item !== key) : [...atual, key]));
+  };
+
+  const handleSalvarObservacoes = () => {
+    setErro(null);
+    setEtapa((atual) => atual + 1);
+    oficinaApi.checklists
+      .atualizar(avaliacaoId, { observacoes: observacoes || null, comunicacoes })
+      .catch((error) => {
+        setErro(error.message || 'Não foi possível salvar as observações automaticamente. Volte a esta etapa e clique em Avançar novamente.');
+      });
+  };
+
+  const handleConcluirAvaliacao = async () => {
+    if (!assinaturaEntrada) {
+      setErro('Capture a assinatura do cliente na entrada antes de concluir.');
+      return;
+    }
+    setSalvando(true);
+    setErro(null);
+    try {
+      await oficinaApi.checklists.atualizar(avaliacaoId, {
+        assinatura_entrada: assinaturaEntrada,
+        assinatura_entrada_nome: assinaturaEntradaNome,
+        assinatura_entrada_vinculo: assinaturaEntradaVinculo,
+        assinatura_entrada_detalhe_vinculo: assinaturaEntradaDetalheVinculo,
+      });
+      await oficinaApi.checklists.concluirAvaliacao(avaliacaoId);
+      limparRascunho();
+      queryClient.invalidateQueries({ queryKey: ['oficina', 'checklists'] });
+      navigate(`/oficina/checklists/${avaliacaoId}`);
+    } catch (error) {
+      setErro(error.message || 'Não foi possível concluir a avaliação.');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleTransferirVeiculo = async () => {
+    if (!veiculo?.id || !cliente?.id) return;
+    setTransferindo(true);
+    try {
+      await oficinaApi.veiculos.transferir({ veiculoId: veiculo.id, clienteId: cliente.id });
+      setAvisoDonoDiferente(null);
+    } catch (error) {
+      setErro(error.message || 'Não foi possível transferir o veículo.');
+    } finally {
+      setTransferindo(false);
+    }
+  };
+
+  const setItemCategoria = (categoria) => (item, status) => {
+    setItensPorCategoria((atual) => ({
+      ...atual,
+      [categoria]: { ...atual[categoria], [item]: status },
+    }));
+  };
+
+  const progresso = useMemo(() => Math.round(((etapa + 1) / ETAPAS.length) * 100), [etapa]);
+
+  // So relevante reabrindo um checklist existente (idParam): calcula ate onde o
+  // preenchimento ja avancou de fato, olhando os dados carregados -- em vez de liberar
+  // todas as etapas (o que deixaria pular direto pra "Fotos" mesmo sem ter passado por
+  // Documentacao/Seguranca/Pneus ainda). O wizard e sequencial (cada "Avancar" salva a
+  // etapa atual), entao a etapa com categoria preenchida so existe se todas as
+  // anteriores tambem foram preenchidas -- por isso o loop para no primeiro buraco.
+  const etapaMaximaComDados = useMemo(() => {
+    if (!idParam) return 0;
+    let maxima = 1; // "Dados do veiculo" (0) ja existe pelo checklist carregado -> libera "Inspecao geral" (1)
+    const categoriaPorEtapa = { 2: 'documentacao', 3: 'seguranca', 4: 'pneus' };
+    for (let index = 2; index <= 4; index += 1) {
+      const categoria = categoriaPorEtapa[index];
+      if (Object.keys(itensPorCategoria[categoria] || {}).length > 0) {
+        maxima = index + 1;
+      } else {
+        break;
+      }
+    }
+    if (fotos.length > 0) {
+      maxima = Math.max(maxima, ETAPAS.length - 2);
+    }
+    return maxima;
+  }, [idParam, itensPorCategoria, fotos]);
+
+  if (carregando) {
+    return <CarLoader inline />;
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 gap-1 text-muted-foreground"
+            onClick={handleCancelar}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar
+          </Button>
+        </div>
+        <h1 className="text-xl font-bold">{idParam ? 'Editar checklist' : 'Nova avaliação'}</h1>
+        <div className="mt-3 flex gap-1.5 overflow-x-auto rounded-xl border bg-card p-3 md:flex-wrap md:overflow-visible">
+          {ETAPAS.map((nome, index) => {
+            const concluida = index < etapa;
+            const atual = index === etapa;
+            // Uma vez na etapa final (assinatura de entrada já validada pelo cliente),
+            // trava a navegação para as etapas anteriores — não é mais possível alterar
+            // a inspeção/dados de entrada, só a entrega e a assinatura de saída.
+            // Reabrindo um checklist existente (idParam), libera navegação livre só até
+            // `etapaMaximaComDados` — a etapa mais à frente que já tem dado salvo (mais a
+            // próxima, pra poder continuar) — não faz sentido obrigar a clicar "Avançar"
+            // em cada uma só pra chegar onde parou, mas também não pode pular pra uma
+            // etapa que ainda não foi preenchida. Num checklist novo (sem idParam) isso
+            // continua linear: etapas à frente ainda não têm dado nenhum (e a avaliação
+            // só existe no servidor a partir do fim da etapa 0).
+            const habilitada = etapa >= ETAPAS.length - 1
+              ? index === etapa
+              : idParam
+                ? index <= Math.max(etapa, etapaMaximaComDados)
+                : index <= etapa;
+            return (
+              <button
+                key={nome}
+                type="button"
+                disabled={!habilitada}
+                onClick={() => habilitada && setEtapa(index)}
+                className={`shrink-0 rounded-full px-2.5 py-1.5 text-center text-[11px] font-medium whitespace-nowrap transition-colors md:flex-1 xl:text-xs ${
+                  atual
+                    ? 'bg-primary text-primary-foreground'
+                    : concluida
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-muted text-muted-foreground'
+                } ${habilitada ? 'cursor-pointer hover:opacity-90' : 'cursor-not-allowed opacity-60'}`}
+              >
+                {habilitada ? `${index + 1}.` : <Lock className="inline h-3 w-3" />} {nome}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-2 h-1 w-full rounded-full bg-muted">
+          <div className="h-1 rounded-full bg-primary transition-all" style={{ width: `${progresso}%` }} />
+        </div>
+      </div>
+
+      {erro && <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{erro}</p>}
+
+      {etapa === 0 && (
+        <div className="flex flex-col gap-4">
+          <ClienteVeiculoPicker tipo="cliente" label="Cliente (opcional)" value={cliente} onChange={setCliente} />
+          {cliente && !veiculo && veiculosDoCliente.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Veículos de {cliente.nome}</p>
+              <div className="flex flex-col divide-y rounded-lg border">
+                {veiculosDoCliente.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="p-2 text-left text-sm hover:bg-accent"
+                    onClick={() => setVeiculo(item)}
+                  >
+                    {[item.marca_nome, item.modelo_nome, item.placa || item.chassi].filter(Boolean).join(' · ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <ClienteVeiculoPicker tipo="veiculo" label="Veículo *" value={veiculo} onChange={setVeiculo} clienteId={cliente?.id} />
+          <div className="space-y-2">
+            <Label htmlFor="unidade">Unidade *</Label>
+            <Select value={unidadeId} onValueChange={setUnidadeId}>
+              <SelectTrigger id="unidade">
+                <SelectValue placeholder="Selecione a unidade" />
+              </SelectTrigger>
+              <SelectContent>
+                {unidades.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input placeholder="O.S." className="uppercase" value={os} onChange={(e) => setOs(toUpperText(e.target.value))} />
+            <Input placeholder="Km" type="number" value={km} onChange={(e) => setKm(e.target.value)} />
+          </div>
+          {!avaliacaoId && user?.isOficinaAdmin && (
+            <label htmlFor="ehTeste" className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox id="ehTeste" checked={ehTeste} onCheckedChange={(checked) => setEhTeste(checked === true)} />
+              Marcar como checklist de teste (pode ser excluído depois)
+            </label>
+          )}
+          <div className="flex justify-end">
+            <Button type="button" onClick={handleIniciarOuAtualizarDados} disabled={salvando}>
+              {salvando ? 'Salvando...' : 'Avançar'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {etapa === 1 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+            <h2 className="text-sm font-semibold">Inspeção do veículo</h2>
+
+            <label htmlFor="pinturaSuja" className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox id="pinturaSuja" checked={pinturaSuja} onCheckedChange={(checked) => setPinturaSuja(checked === true)} />
+              Veículo com pintura suja, impossibilitando inspeção/identificação de riscos e danos.
+            </label>
+
+            <AvariaMap
+              avarias={avarias}
+              avaliacaoId={avaliacaoId}
+              onAdicionar={handleAdicionarAvaria}
+              onRemover={handleRemoverAvaria}
+              onCapturarFotoAmassado={handleFotoAmassado}
+            />
+          </div>
+
+          <div className="flex flex-col items-center gap-3 rounded-xl border bg-card p-4">
+            <h2 className="self-start text-sm font-semibold">Nível de combustível</h2>
+            <CombustivelGauge value={nivelCombustivel} onChange={setNivelCombustivel} />
+
+            {(() => {
+              const fotoMedidor = fotos.find((foto) => foto.categoria === CATEGORIA_FOTO_COMBUSTIVEL);
+              return (
+                <div className="flex w-full max-w-xs flex-col items-center gap-2">
+                  {erroFotoCombustivel && <p className="text-xs text-destructive">{erroFotoCombustivel}</p>}
+                  <input
+                    ref={fotoCombustivelInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(event) => {
+                      const arquivo = event.target.files?.[0];
+                      event.target.value = '';
+                      if (arquivo) handleFotoCombustivel(arquivo);
+                    }}
+                  />
+                  {fotoMedidor ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={fotoMedidor.url}
+                        alt="Foto do medidor de combustível"
+                        className="h-20 w-20 rounded-md border object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleRemoverFotoCombustivel(fotoMedidor)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remover
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={enviandoFotoCombustivel}
+                      onClick={() => fotoCombustivelInputRef.current?.click()}
+                    >
+                      {enviandoFotoCombustivel ? (
+                        <Spinner className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Camera className="mr-2 h-4 w-4" />
+                      )}
+                      {enviandoFotoCombustivel ? 'Enviando...' : 'Tirar/Escolher foto do medidor'}
+                    </Button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={() => setEtapa((atual) => atual - 1)}>
+              Voltar
+            </Button>
+            <Button type="button" onClick={handleSalvarInspecaoGeral}>
+              Avançar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {(etapa === 2 || etapa === 3 || etapa === 4) &&
+        (() => {
+          const categoria = ['documentacao', 'seguranca', 'pneus'][etapa - 2];
+          return (
+            <div className="flex flex-col gap-4">
+              <ChecklistItensList
+                categoria={categoria}
+                valores={itensPorCategoria[categoria] || {}}
+                onChange={setItemCategoria(categoria)}
+              />
+              <div className="flex justify-between">
+                <Button type="button" variant="outline" onClick={() => setEtapa((atual) => atual - 1)}>
+                  Voltar
+                </Button>
+                <Button type="button" onClick={() => handleSalvarCategoria(categoria)}>
+                  Avançar
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+
+      {etapa === 5 && (
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="observacoes">
+              Observações / Reclamações do cliente
+            </label>
+            <Textarea
+              id="observacoes"
+              rows={6}
+              className="uppercase"
+              value={observacoes}
+              onChange={(e) => setObservacoes(toUpperText(e.target.value))}
+            />
+          </div>
+
+          <div className="rounded-xl border bg-card p-4">
+            <h2 className="text-sm font-semibold">Comunicações eletrônicas</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Estou de acordo em receber informações / comunicações eletrônicas provindas:
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              {COMUNICACOES_OPCOES.map((opcao) => (
+                <label key={opcao.key} htmlFor={`comunicacao-${opcao.key}`} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    id={`comunicacao-${opcao.key}`}
+                    checked={comunicacoes.includes(opcao.key)}
+                    onCheckedChange={() => toggleComunicacao(opcao.key)}
+                  />
+                  {opcao.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={() => setEtapa((atual) => atual - 1)}>
+              Voltar
+            </Button>
+            <Button type="button" onClick={handleSalvarObservacoes}>
+              Avançar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {etapa === 6 && (
+        <div className="flex flex-col gap-4">
+          <FotoUploadGrid
+            avaliacaoId={avaliacaoId}
+            fotos={fotos}
+            onFotoAdicionada={(foto) => setFotos((atual) => [...atual, foto])}
+            onFotoAtualizada={(foto) =>
+              setFotos((atual) => atual.map((atual2) => (atual2.storage_path === foto.storage_path ? foto : atual2)))
+            }
+            onFotoRemovida={(storagePath) => setFotos((atual) => atual.filter((foto) => foto.storage_path !== storagePath))}
+          />
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={() => setEtapa((atual) => atual - 1)}>
+              Voltar
+            </Button>
+            <Button type="button" onClick={() => setEtapa((atual) => atual + 1)}>
+              Avançar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {etapa === 7 && (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-lg border border-border bg-card p-3">
+            <p className="text-xs text-muted-foreground">Assinatura do responsável</p>
+            {user?.signatureUrl ? (
+              <div className="mt-2 inline-block rounded-md bg-white p-1">
+                <img src={user.signatureUrl} alt="Assinatura do responsável" className="h-16 object-contain" />
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">Nenhuma assinatura cadastrada no perfil.</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-3">
+            <p className="text-xs text-muted-foreground">Assinatura do cliente (Entrada)</p>
+            {assinaturaEntrada ? (
+              <div className="mt-2 inline-block rounded-md bg-white p-1">
+                <img src={assinaturaEntrada} alt="Assinatura do cliente na entrada" className="h-16 object-contain" />
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">Ainda não capturada.</p>
+            )}
+            {(assinaturaEntradaNome || assinaturaEntradaVinculo) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {[
+                  assinaturaEntradaNome,
+                  assinaturaEntradaVinculo === 'Terceiro autorizado' || assinaturaEntradaVinculo === 'Outro'
+                    ? [assinaturaEntradaVinculo, assinaturaEntradaDetalheVinculo].filter(Boolean).join(' - ')
+                    : assinaturaEntradaVinculo,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            )}
+            <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => setModalAssinaturaEntradaAberto(true)}>
+              {assinaturaEntrada ? 'Refazer assinatura' : 'Capturar assinatura'}
+            </Button>
+          </div>
+
+          <div className="flex justify-between">
+            <Button type="button" variant="outline" onClick={() => setEtapa((atual) => atual - 1)}>
+              Voltar
+            </Button>
+            <Button type="button" onClick={handleConcluirAvaliacao} disabled={salvando || !assinaturaEntrada}>
+              {salvando ? 'Concluindo...' : 'Concluir avaliação'}
+            </Button>
+          </div>
+
+          <AssinaturaModal
+            open={modalAssinaturaEntradaAberto}
+            titulo="Assinatura do cliente na entrada"
+            nomeCliente={cliente?.nome}
+            onCancel={() => setModalAssinaturaEntradaAberto(false)}
+            onConfirm={(dataUrl, { nome, vinculo, detalheVinculo }) => {
+              setAssinaturaEntrada(dataUrl);
+              setAssinaturaEntradaNome(nome);
+              setAssinaturaEntradaVinculo(vinculo || null);
+              setAssinaturaEntradaDetalheVinculo(detalheVinculo || null);
+              setModalAssinaturaEntradaAberto(false);
+            }}
+          />
+        </div>
+      )}
+
+      <Dialog open={Boolean(avisoDonoDiferente)} onOpenChange={(open) => !open && setAvisoDonoDiferente(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Veículo cadastrado para outro cliente</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Este veículo está cadastrado para <strong>{avisoDonoDiferente?.atual_nome}</strong>. Deseja transferir para{' '}
+            <strong>{cliente?.nome}</strong>, ou apenas manter {avisoDonoDiferente?.atual_nome} como dono (alguém trouxe o
+            carro em nome dele)?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setAvisoDonoDiferente(null)} disabled={transferindo}>
+              Manter dono atual
+            </Button>
+            <Button type="button" onClick={handleTransferirVeiculo} disabled={transferindo}>
+              {transferindo ? 'Transferindo...' : 'Transferir para ' + (cliente?.nome || 'este cliente')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

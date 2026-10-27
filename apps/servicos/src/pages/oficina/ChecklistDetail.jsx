@@ -1,0 +1,572 @@
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Camera,
+  Check,
+  Clock,
+  ClipboardList,
+  History,
+  ImageOff,
+  Link2,
+  ListChecks,
+  Pencil,
+  Printer,
+  Share2,
+  Trash2,
+} from 'lucide-react';
+import { WhatsAppIcon } from '@/shared/ui';
+
+import { Badge, Button, CarLoader, Checkbox, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Textarea } from '@/shared/ui';
+import { oficinaApi } from '@/shared/api/oficinaApi';
+import { useAuth } from '@/lib/AuthContext';
+import { appUrl } from '@/lib/tenant';
+import { toUpperText } from '@/lib/oficinaFormat';
+import AvariaMap from '@/components/oficina/AvariaMap';
+import ChecklistItensList from '@/components/oficina/ChecklistItensList';
+import FotoUploadGrid from '@/components/oficina/FotoUploadGrid';
+import AssinaturaModal from '@/components/oficina/AssinaturaModal';
+import ConfirmDeleteDialog from '@/components/ConfirmDeleteDialog';
+import ChecklistDocumento from '@/pages/oficina/ChecklistDocumento';
+
+const STATUS_LABEL = { em_andamento: 'Em andamento', avaliado: 'Avaliado', finalizado: 'Finalizado' };
+const STATUS_VARIANT = { em_andamento: 'warning', avaliado: 'default', finalizado: 'success' };
+
+function formatarVinculoAssinante(vinculo, detalheVinculo) {
+  if (!vinculo) return null;
+  if ((vinculo === 'Terceiro autorizado' || vinculo === 'Outro') && detalheVinculo) {
+    return `${vinculo} - ${detalheVinculo}`;
+  }
+  return vinculo;
+}
+const CATEGORIAS = ['documentacao', 'seguranca', 'pneus'];
+const COMUNICACOES_LABEL = {
+  concessionarias: 'Da rede de concessionárias e/ou reparadores autorizados da marca',
+  grupo: 'De qualquer empresa pertencente ao mesmo grupo',
+  parceiro: 'De qualquer parceiro da marca',
+};
+
+const HISTORICO_EVENTO_META = {
+  criado: { label: 'Checklist iniciado', icon: ClipboardList, className: 'text-muted-foreground bg-muted' },
+  editado: { label: 'Checklist editado', icon: Pencil, className: 'text-muted-foreground bg-muted' },
+  itens_atualizados: { label: 'Itens atualizados', icon: ListChecks, className: 'text-muted-foreground bg-muted' },
+  avaria_adicionada: { label: 'Avaria registrada', icon: Pencil, className: 'text-amber-600 bg-amber-500/10' },
+  avaria_removida: { label: 'Avaria removida', icon: Trash2, className: 'text-destructive bg-destructive/20' },
+  foto_adicionada: { label: 'Foto adicionada', icon: Camera, className: 'text-muted-foreground bg-muted' },
+  foto_removida: { label: 'Foto removida', icon: ImageOff, className: 'text-destructive bg-destructive/20' },
+  avaliado: { label: 'Avaliação concluída', icon: Check, className: 'text-emerald-600 bg-emerald-500/20' },
+  finalizado: { label: 'Entrega finalizada', icon: Check, className: 'text-emerald-600 bg-emerald-500/20' },
+  link_compartilhado: { label: 'Link compartilhado', icon: Share2, className: 'text-muted-foreground bg-muted' },
+  link_acessado: { label: 'Link acessado pelo cliente', icon: Link2, className: 'text-muted-foreground bg-muted' },
+};
+const HISTORICO_EVENTO_META_DEFAULT = { label: null, icon: Clock, className: 'text-muted-foreground bg-muted' };
+
+function itensParaMapa(itensArray) {
+  const mapa = {};
+  itensArray.forEach((item) => {
+    if (!mapa[item.categoria]) mapa[item.categoria] = {};
+    mapa[item.categoria][item.item] = item.status;
+  });
+  return mapa;
+}
+
+export default function ChecklistDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+
+  const checklistCarregado = location.state?.checklistCarregado;
+
+  const [carregando, setCarregando] = useState(!checklistCarregado);
+  const [row, setRow] = useState(checklistCarregado?.row || null);
+  const [avarias, setAvarias] = useState(checklistCarregado?.avarias || []);
+  const [itensPorCategoria, setItensPorCategoria] = useState(
+    checklistCarregado ? itensParaMapa(checklistCarregado.itens || []) : {},
+  );
+  const [historico, setHistorico] = useState(checklistCarregado?.historico || []);
+  const [modalHistoricoAberto, setModalHistoricoAberto] = useState(false);
+  const [imprimindo, setImprimindo] = useState(false);
+  const [compartilhando, setCompartilhando] = useState(false);
+  const [erroCompartilhar, setErroCompartilhar] = useState(null);
+
+  const [entregaObservacoes, setEntregaObservacoes] = useState('');
+  const [entregaConferida, setEntregaConferida] = useState(false);
+  const [assinaturaSaida, setAssinaturaSaida] = useState(null);
+  const [assinaturaSaidaNome, setAssinaturaSaidaNome] = useState(null);
+  const [assinaturaSaidaVinculo, setAssinaturaSaidaVinculo] = useState(null);
+  const [assinaturaSaidaDetalheVinculo, setAssinaturaSaidaDetalheVinculo] = useState(null);
+  const [modalAssinaturaAberto, setModalAssinaturaAberto] = useState(false);
+  const [modalEntregaAberto, setModalEntregaAberto] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
+  const [erroFinalizar, setErroFinalizar] = useState(null);
+
+  const [os, setOs] = useState('');
+  const [editandoOs, setEditandoOs] = useState(false);
+  const [salvandoOs, setSalvandoOs] = useState(false);
+  const [erroOs, setErroOs] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const [excluirAberto, setExcluirAberto] = useState(false);
+  const [erroExcluir, setErroExcluir] = useState(null);
+
+  useEffect(() => {
+    oficinaApi.checklists
+      .obter(id)
+      .then(({ row: rowCarregado, itens, avarias: avariasCarregadas, historico: historicoCarregado }) => {
+        setRow(rowCarregado);
+        setAvarias(avariasCarregadas || []);
+        setItensPorCategoria(itensParaMapa(itens || []));
+        setHistorico(historicoCarregado || []);
+        setEntregaObservacoes(rowCarregado?.entrega_observacoes || '');
+        setEntregaConferida(Boolean(rowCarregado?.entrega_conferida));
+        setAssinaturaSaida(rowCarregado?.assinatura_saida || null);
+        setAssinaturaSaidaNome(rowCarregado?.assinatura_saida_nome || null);
+        setAssinaturaSaidaVinculo(rowCarregado?.assinatura_saida_vinculo || null);
+        setAssinaturaSaidaDetalheVinculo(rowCarregado?.assinatura_saida_detalhe_vinculo || null);
+        setOs(rowCarregado?.os || '');
+      })
+      .finally(() => setCarregando(false));
+  }, [id]);
+
+  const refreshHistorico = () => {
+    oficinaApi.checklists.obter(id).then(({ historico: historicoAtualizado }) => setHistorico(historicoAtualizado || []));
+  };
+
+  const handleFinalizar = async () => {
+    setFinalizando(true);
+    setErroFinalizar(null);
+    try {
+      const rowAtualizado = await oficinaApi.checklists.finalizar(id, {
+        entregaConferida,
+        entregaObservacoes: entregaObservacoes || undefined,
+        assinaturaSaida,
+        assinaturaSaidaNome,
+        assinaturaSaidaVinculo,
+        assinaturaSaidaDetalheVinculo,
+      });
+      setRow(rowAtualizado);
+      setModalEntregaAberto(false);
+      refreshHistorico();
+    } catch (error) {
+      setErroFinalizar(error.message || 'Não foi possível finalizar o checklist.');
+    } finally {
+      setFinalizando(false);
+    }
+  };
+
+  // Gera um link publico (valido por 24h) e abre o WhatsApp com a mensagem
+  // pronta -- o cliente baixa o PDF pelo proprio navegador dele quando abre o
+  // link, sem nenhum arquivo passando pelo nosso servidor.
+  const handleCompartilharWhatsApp = async () => {
+    setCompartilhando(true);
+    setErroCompartilhar(null);
+    try {
+      const { token } = await oficinaApi.checklists.compartilharLink(id);
+      const link = `${appUrl(`/checklist-publico/${id}`)}?token=${encodeURIComponent(token)}`;
+      const linhas = [
+        `*Checklist de Inspeção${row.numero ? ` Nº ${row.numero}` : ''}*`,
+        '',
+        row.veiculo_modelo && `*Veículo:* ${[row.veiculo_modelo, row.veiculo_placa].filter(Boolean).join(' · ')}`,
+        '',
+        `Baixe o PDF do checklist: ${link}`,
+        '',
+        'Este link expira em 24 horas.',
+      ].filter(Boolean);
+      window.open(`https://wa.me/?text=${encodeURIComponent(linhas.join('\n'))}`, '_blank', 'noopener,noreferrer');
+      refreshHistorico();
+    } catch (error) {
+      setErroCompartilhar(error.message || 'Não foi possível gerar o link de compartilhamento.');
+    } finally {
+      setCompartilhando(false);
+    }
+  };
+
+  const handleSalvarOs = async () => {
+    setSalvandoOs(true);
+    setErroOs(null);
+    try {
+      const rowAtualizado = await oficinaApi.checklists.atualizar(id, { os: os || null });
+      setRow(rowAtualizado);
+      setEditandoOs(false);
+    } catch (error) {
+      setErroOs(error.message || 'Não foi possível salvar a O.S.');
+    } finally {
+      setSalvandoOs(false);
+    }
+  };
+
+  const handleExcluir = async (event) => {
+    // mantém o diálogo aberto durante a exclusão; em erro, a mensagem aparece nele
+    event?.preventDefault();
+    setExcluindo(true);
+    setErroExcluir(null);
+    try {
+      await oficinaApi.checklists.excluir(id);
+      navigate('/oficina/checklists');
+    } catch (error) {
+      setErroExcluir(error.message || 'Não foi possível excluir o checklist.');
+    } finally {
+      setExcluindo(false);
+    }
+  };
+
+  if (carregando) {
+    return <CarLoader inline />;
+  }
+
+  if (!row) {
+    return <p className="text-sm text-muted-foreground">Checklist não encontrado.</p>;
+  }
+
+  if (imprimindo) {
+    return (
+      <ChecklistDocumento
+        row={row}
+        avarias={avarias}
+        itensPorCategoria={itensPorCategoria}
+        onVoltar={() => setImprimindo(false)}
+      />
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/oficina/checklists')}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Voltar
+        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setModalHistoricoAberto(true)}>
+            <History className="mr-2 h-4 w-4" />
+            Histórico
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setImprimindo(true)}>
+            <Printer className="mr-2 h-4 w-4" />
+            Visualizar PDF
+          </Button>
+          {(row.status === 'avaliado' || row.status === 'finalizado') && (
+            <Button type="button" variant="outline" size="sm" onClick={handleCompartilharWhatsApp} disabled={compartilhando}>
+              <WhatsAppIcon className="mr-2 h-4 w-4" />
+              {compartilhando ? 'Gerando link...' : 'Compartilhar'}
+            </Button>
+          )}
+          {row.status === 'em_andamento' && !row.assinatura_entrada && user?.isOficinaInspetor && (
+            <Button type="button" size="sm" onClick={() => navigate(`/oficina/checklists/${id}/editar`)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Button>
+          )}
+          {(row.status === 'avaliado' || (row.status === 'em_andamento' && row.assinatura_entrada)) && user?.isOficinaInspetor && (
+            <Button type="button" size="sm" onClick={() => setModalEntregaAberto(true)}>
+              Registrar Saída
+            </Button>
+          )}
+          {row.eh_teste && user?.isOficinaAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                setErroExcluir(null);
+                setExcluirAberto(true);
+              }}
+              disabled={excluindo}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {excluindo ? 'Excluindo...' : 'Excluir'}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold">Checklist Nº {row.numero}</h1>
+          <p className="text-sm text-muted-foreground">
+            {new Date(row.data_entrada).toLocaleString('pt-BR')}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {row.eh_teste && <Badge variant="outline">Teste</Badge>}
+          <Badge variant={STATUS_VARIANT[row.status] || 'default'}>{STATUS_LABEL[row.status] || row.status}</Badge>
+        </div>
+      </div>
+
+      {erroCompartilhar && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          {erroCompartilhar}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 rounded-lg border border-border bg-card p-4 text-sm">
+        <div>
+          <p className="text-xs text-muted-foreground">Cliente</p>
+          <p>{row.cliente_nome || '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Veículo</p>
+          <p>{[row.veiculo_modelo, row.veiculo_placa || row.veiculo_chassi].filter(Boolean).join(' · ') || '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Responsável</p>
+          <p>{row.colaborador_nome || '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">O.S.</p>
+          {editandoOs ? (
+            <div className="mt-1 flex items-center gap-2">
+              <Input
+                className="h-8"
+                placeholder="O.S."
+                autoFocus
+                value={os}
+                className="uppercase"
+                onChange={(e) => setOs(toUpperText(e.target.value))}
+                onBlur={() => (os !== (row.os || '') ? handleSalvarOs() : setEditandoOs(false))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') {
+                    setOs(row.os || '');
+                    setEditandoOs(false);
+                  }
+                }}
+                disabled={salvandoOs}
+              />
+              {salvandoOs && <span className="text-xs text-muted-foreground">Salvando...</span>}
+            </div>
+          ) : (
+            <p className="flex items-center gap-1.5">
+              {row.os || '—'}
+              {user?.isOficinaInspetor && (
+                <button
+                  type="button"
+                  onClick={() => setEditandoOs(true)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Editar O.S."
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </p>
+          )}
+          {erroOs && <p className="mt-1 text-xs text-destructive">{erroOs}</p>}
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Km</p>
+          <p>{row.km ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Unidade</p>
+          <p>{row.unidade_nome || '—'}</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card p-4">
+        <h2 className="mb-3 text-sm font-semibold">Inspeção do veículo</h2>
+        <AvariaMap avarias={avarias} readOnly />
+      </div>
+
+      {CATEGORIAS.map((categoria) => (
+        <ChecklistItensList key={categoria} categoria={categoria} valores={itensPorCategoria[categoria] || {}} readOnly />
+      ))}
+
+      {row.observacoes && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Observações</p>
+          <p className="text-sm">{row.observacoes}</p>
+        </div>
+      )}
+
+      {Array.isArray(row.comunicacoes) && row.comunicacoes.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Comunicações eletrônicas autorizadas</p>
+          <ul className="mt-1 list-disc pl-5 text-sm">
+            {row.comunicacoes.map((chave) => (
+              <li key={chave}>{COMUNICACOES_LABEL[chave] || chave}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <FotoUploadGrid avaliacaoId={id} fotos={row.fotos || []} readOnly />
+
+      <div className="grid grid-cols-3 gap-4">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Assinatura do responsável</p>
+          {row.colaborador_assinatura_url ? (
+            <div className="mt-2 inline-block rounded-md bg-white p-1">
+              <img src={row.colaborador_assinatura_url} alt="Assinatura do responsável" className="h-16 object-contain" />
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">—</p>
+          )}
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Assinatura do cliente (Entrada)</p>
+          {row.assinatura_entrada ? (
+            <div className="mt-2 inline-block rounded-md bg-white p-1">
+              <img src={row.assinatura_entrada} alt="Assinatura do cliente na entrada" className="h-16 object-contain" />
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">—</p>
+          )}
+          {(row.assinatura_entrada_nome || row.assinatura_entrada_vinculo) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[
+                row.assinatura_entrada_nome,
+                formatarVinculoAssinante(row.assinatura_entrada_vinculo, row.assinatura_entrada_detalhe_vinculo),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Assinatura do cliente (Saída)</p>
+          {row.assinatura_saida ? (
+            <div className="mt-2 inline-block rounded-md bg-white p-1">
+              <img src={row.assinatura_saida} alt="Assinatura do cliente na saída" className="h-16 object-contain" />
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">—</p>
+          )}
+          {(row.assinatura_saida_nome || row.assinatura_saida_vinculo) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[
+                row.assinatura_saida_nome,
+                formatarVinculoAssinante(row.assinatura_saida_vinculo, row.assinatura_saida_detalhe_vinculo),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <Dialog open={modalHistoricoAberto} onOpenChange={setModalHistoricoAberto}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Histórico</DialogTitle>
+          </DialogHeader>
+
+          {historico.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum evento registrado.</p>
+          ) : (
+            <ul className="min-w-0 max-h-[60vh] overflow-y-auto">
+              {historico.map((item, index) => {
+                const meta = HISTORICO_EVENTO_META[item.evento] || HISTORICO_EVENTO_META_DEFAULT;
+                const EventoIcon = meta.icon;
+                const isLast = index === historico.length - 1;
+                return (
+                  <li key={item.id} className="flex min-w-0 gap-3 text-sm">
+                    <div className="flex shrink-0 flex-col items-center">
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${meta.className}`}>
+                        <EventoIcon className="h-3 w-3" />
+                      </span>
+                      {!isLast && <span className="my-1 w-0.5 flex-1 bg-border" />}
+                    </div>
+                    <div className="min-w-0 flex-1 pb-4 pt-1">
+                      <p className="break-words font-medium">{meta.label || item.evento}</p>
+                      <p className="break-words text-xs text-muted-foreground">
+                        {new Date(item.criado_em).toLocaleString('pt-BR')}
+                        {item.autor_nome ? ` — ${item.autor_nome}` : ''}
+                      </p>
+                      {item.observacao && <p className="mt-1 break-words text-muted-foreground">{item.observacao}</p>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={modalEntregaAberto} onOpenChange={(open) => !open && setModalEntregaAberto(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Entrega e Saída</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4">
+            {erroFinalizar && (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {erroFinalizar}
+              </p>
+            )}
+
+            <div>
+              <label className="mb-1 block text-sm font-medium" htmlFor="entregaObservacoes">
+                Observações da entrega
+              </label>
+              <Textarea
+                id="entregaObservacoes"
+                rows={3}
+                className="uppercase"
+                value={entregaObservacoes}
+                onChange={(e) => setEntregaObservacoes(toUpperText(e.target.value))}
+              />
+            </div>
+
+            <label htmlFor="entregaConferida" className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox id="entregaConferida" checked={entregaConferida} onCheckedChange={(checked) => setEntregaConferida(checked === true)} />
+              Entrega conferida com o cliente.
+            </label>
+
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-xs text-muted-foreground">Assinatura do cliente (Saída)</p>
+              {assinaturaSaida ? (
+                <div className="mt-2 inline-block rounded-md bg-white p-1">
+                  <img src={assinaturaSaida} alt="Assinatura do cliente na saída" className="h-16 object-contain" />
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-muted-foreground">Ainda não capturada.</p>
+              )}
+              {(assinaturaSaidaNome || assinaturaSaidaVinculo) && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {[assinaturaSaidaNome, formatarVinculoAssinante(assinaturaSaidaVinculo, assinaturaSaidaDetalheVinculo)]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
+              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => setModalAssinaturaAberto(true)}>
+                {assinaturaSaida ? 'Refazer assinatura' : 'Capturar assinatura'}
+              </Button>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="button" onClick={handleFinalizar} disabled={finalizando || !assinaturaSaida}>
+                {finalizando ? 'Finalizando...' : 'Finalizar avaliação'}
+              </Button>
+            </div>
+          </div>
+
+          <AssinaturaModal
+            open={modalAssinaturaAberto}
+            titulo="Assinatura do cliente na saída"
+            onCancel={() => setModalAssinaturaAberto(false)}
+            onConfirm={(dataUrl, { nome, vinculo, detalheVinculo }) => {
+              setAssinaturaSaida(dataUrl);
+              setAssinaturaSaidaNome(nome);
+              setAssinaturaSaidaVinculo(vinculo || null);
+              setAssinaturaSaidaDetalheVinculo(detalheVinculo || null);
+              setModalAssinaturaAberto(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDeleteDialog
+        open={excluirAberto}
+        onOpenChange={setExcluirAberto}
+        onConfirm={handleExcluir}
+        isLoading={excluindo}
+        title="Excluir checklist"
+        description={`Excluir definitivamente o checklist Nº ${row.numero}? Não pode ser desfeito.`}
+      >
+        {erroExcluir && <p className="text-sm text-destructive">{erroExcluir}</p>}
+      </ConfirmDeleteDialog>
+    </div>
+  );
+}

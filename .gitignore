@@ -1,0 +1,48 @@
+#env
+.env
+.env.*
+!.env.example
+
+# Logs
+/logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+*.local.md
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.env
+.vite
+
+# Playwright MCP snapshots/screenshots (may capture form input, incl. credentials)
+.playwright-mcp/
+
+# Generated files
+README.md
+
+# Build Android local (Capacitor)
+apps/servicos/android/
+
+# Screenshots soltos na raiz
+/*.png
+
+# Supabase CLI local (contem segredos)
+supabase/.temp/

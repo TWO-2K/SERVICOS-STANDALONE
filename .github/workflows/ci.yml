@@ -1,0 +1,57 @@
+# CI: compila o front e roda os testes de integracao (isolamento entre clientes + fluxos do Financeiro e da Oficina)
+# contra um Supabase local no Docker do runner. Equivale a `npm run db:start`, `npm run functions:serve` e `npm test`.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build do front
+        run: npm run build
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Sobe o Supabase local (aplica migrations e seed)
+        run: supabase start
+
+      - name: Variaveis das Edge Functions (somente CI, valores descartaveis)
+        run: |
+          cat > supabase/functions/.env.local <<'ENV'
+          DATABASE_URL=postgresql://postgres:postgres@supabase_db_servicos:5432/postgres
+          INTERNAL_INVOKE_SECRET=local-dev-secret
+          CHECKLIST_SHARE_SECRET=local-dev-checklist-secret
+          PUBLIC_SUPABASE_URL=http://127.0.0.1:55321
+          ENV
+
+      - name: Sobe as Edge Functions
+        run: |
+          npm run functions:serve > functions.log 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:55321/functions/v1/servicos-api || true)
+            if [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ]; then echo "functions no ar ($code)"; exit 0; fi
+            sleep 2
+          done
+          echo "functions nao subiram"; cat functions.log; exit 1
+
+      - name: Testes de integracao
+        run: npm test
+
+      - name: Logs das functions (se falhou)
+        if: failure()
+        run: cat functions.log || true
