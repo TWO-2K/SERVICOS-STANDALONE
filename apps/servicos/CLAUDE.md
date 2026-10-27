@@ -1,4 +1,4 @@
-# Servicos — app-specific
+# K-Pit (Servicos) — app-specific
 
 > Documenta o que é específico deste app.
 

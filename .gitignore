@@ -36,7 +36,6 @@ dist-ssr
 .playwright-mcp/
 
 # Generated files
-README.md
 
 # Build Android local (Capacitor)
 apps/servicos/android/
