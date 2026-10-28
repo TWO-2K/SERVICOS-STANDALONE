@@ -402,6 +402,14 @@ describe('isolamento entre tenants', () => {
     assert.equal(depois.cor, null);
   });
 
+  test('logs de seguranca (sem tenant_id) nao sao legiveis por usuario de cliente', () => {
+    const tabelas = ['logs_acesso', 'logs_auditoria', 'alertas_seguranca_enviados'];
+    for (const tabela of tabelas) {
+      const privilegio = psql(`select has_table_privilege('authenticated', 'gestao_plataforma.${tabela}', 'select');`);
+      assert.match(privilegio, /\bf\b/, `authenticated nao deve ler gestao_plataforma.${tabela}`);
+    }
+  });
+
   test('mfa: acoes de plataforma exigem segundo fator (aal2); so a senha nao basta', async () => {
     const { aal1, aal2 } = await loginPlataforma();
     const soSenha = api('admin-api', aal1);
