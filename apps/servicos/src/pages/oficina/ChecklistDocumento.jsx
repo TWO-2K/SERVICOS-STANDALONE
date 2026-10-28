@@ -7,6 +7,9 @@ import './checklistDocumento.css';
 
 function formatDate(value) {
   if (!value) return '';
+  // Coluna date ("2026-10-28") vira meia-noite UTC no Date e cai no dia anterior em UTC-3.
+  const soData = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
   return new Date(value).toLocaleDateString('pt-BR');
 }
 
