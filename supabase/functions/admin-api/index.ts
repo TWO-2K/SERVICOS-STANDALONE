@@ -602,6 +602,11 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
            values ('financeiro', true, $1) on conflict (tenant_id, modulo) do nothing;`,
           [tenantId],
         );
+        // Sem unidade o checklist da oficina nao avanca; o cliente renomeia/ajusta depois em Cadastros.
+        await sql!.unsafe(
+          `insert into public.unidades (nome, empresa_id, tenant_id) values ('Matriz', $1, $2);`,
+          [String(empresa[0].id), tenantId],
+        );
         // Sem categorias o formulario de solicitacao nao deixa enviar; o cliente ajusta depois em Catalogos.
         await sql!.unsafe(
           `insert into gestao_servicos.categorias (nome, tenant_id)
