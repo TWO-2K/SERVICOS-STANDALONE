@@ -163,6 +163,18 @@ as dependências do front estão em `apps/servicos/package.json`. Validado: `npm
 - Deploy do front (Vercel/Netlify/etc.) com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` do projeto novo.
 - Criar o primeiro admin (seed manual) e **trocar a senha do seed**. O `seed.sql` atual é só para local.
 
+**Primeiro super-admin (passo manual, depois do `db push`):** `public.sistemas` ('servicos') já vem da migration
+`20260101001700`. O `admin-api` exige que o usuário tenha uma linha em `public.colaboradores` (com tenant) **antes** de checar se
+é admin da plataforma; sem ela o login do painel falha com "Usuario sem cadastro". Crie o usuário no Auth (e-mail confirmado) e rode:
+
+```sql
+insert into public.colaboradores (id, nome, email, funcao, status, tenant_id)
+values ('<user_id>', 'Super Admin', '<email>', 'admin', 'ativo', '55555555-5555-5555-5555-555555555555');
+insert into plataforma.administradores (user_id) values ('<user_id>');
+```
+
+No primeiro login do painel, cadastre o autenticador (TOTP).
+
 **Esforço:** médio. **Depende de:** itens 1 e 2 para ser entregável.
 
 ## 7. Para vender/entregar
