@@ -24,6 +24,10 @@ const NIVEIS_ACESSO = ['usuario', 'gestor', 'admin'] as const;
 const STATUS_USUARIO = ['ativo', 'inativo', 'afastado'] as const;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38})[a-z0-9]$/;
+const CATEGORIAS_PADRAO = [
+  'Fornecedores', 'Serviços', 'Peças e materiais', 'Impostos e taxas', 'Folha e benefícios',
+  'Aluguel e condomínio', 'Energia, água e internet', 'Manutenção', 'Marketing', 'Outros',
+];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const databaseUrl = Deno.env.get('DATABASE_URL');
@@ -597,6 +601,12 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
           `insert into gestao_servicos.configuracoes_modulo (modulo, restringir_visibilidade_pagamento_dinheiro, tenant_id)
            values ('financeiro', true, $1) on conflict (tenant_id, modulo) do nothing;`,
           [tenantId],
+        );
+        // Sem categorias o formulario de solicitacao nao deixa enviar; o cliente ajusta depois em Catalogos.
+        await sql!.unsafe(
+          `insert into gestao_servicos.categorias (nome, tenant_id)
+           select n, $1 from unnest($2::text[]) as n on conflict do nothing;`,
+          [tenantId, CATEGORIAS_PADRAO],
         );
         return await criarUsuarioNoTenant(tenantId, {
           nome: adminNome,
