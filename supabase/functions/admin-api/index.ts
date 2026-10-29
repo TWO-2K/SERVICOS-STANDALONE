@@ -884,13 +884,34 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
     return { rows };
   }
 
-  if (action === 'admin_adicionar') {
+  // Cria uma conta nova, exclusiva da plataforma. O cadastro de colaborador fica no tenant padrao (exigencia tecnica);
+  // a conta e oculta das listas e bloqueada no app do cliente.
+  if (action === 'admin_criar') {
+    const nome = texto(body.nome, 120);
     const email = texto(body.email, 160).toLowerCase();
+    if (!nome) throw httpError('Informe o nome.');
     if (!EMAIL_RE.test(email)) throw httpError('Informe um e-mail valido.');
-    const users = await sqlPool!.unsafe(`select id from auth.users where lower(email) = $1 limit 1;`, [email]);
-    if (!users[0]) throw httpError('Nenhum usuario com esse e-mail. Crie o usuario em um cliente primeiro.', 404);
-    await sqlPool!.unsafe(`insert into plataforma.administradores (user_id) values ($1) on conflict do nothing;`, [users[0].id]);
-    return { success: true, user_id: users[0].id };
+    const tenants = await sqlPool!.unsafe(`select id from public.tenants where slug = 'padrao' limit 1;`);
+    if (!tenants[0]) throw httpError('Cliente padrao nao encontrado.', 500);
+    const tenantId = String(tenants[0].id);
+    try {
+      const usuario = await runInTenant(sqlPool!, tenantId, async () => {
+        const empresa = await sql!.unsafe(`select id from public.empresas order by criado_em limit 1;`);
+        return await criarUsuarioNoTenant(tenantId, {
+          nome,
+          email,
+          nivelAcesso: 'admin',
+          departamentoId: null,
+          unidadeId: null,
+          empresaId: empresa[0] ? String(empresa[0].id) : null,
+        });
+      });
+      await sqlPool!.unsafe(`insert into plataforma.administradores (user_id) values ($1) on conflict do nothing;`, [usuario.id]);
+      const emailEnviado = await entregarAcessoPorEmail(tenantId, { nome, email, senha: String(usuario.senha_temporaria), motivo: 'convite' });
+      return { row: { ...usuario, senha_temporaria: emailEnviado ? null : usuario.senha_temporaria, email_enviado: emailEnviado } };
+    } catch (error) {
+      throw mapDbError(error);
+    }
   }
 
   if (action === 'admin_remover') {
@@ -1024,11 +1045,11 @@ const CATALOGOS = ['marcas', 'categorias', 'cores', 'modelos'] as const;
 const TABELA_CATALOGO = { marcas: 'marcas_veiculo', categorias: 'categorias_veiculo', cores: 'cores_veiculo', modelos: 'modelos_veiculo' } as const;
 
 const MARCA_ACTIONS = new Set(['marca_obter', 'marca_salvar']);
-const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admins', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admins_list', 'admin_adicionar', 'admin_remover', 'auditoria_list']);
+const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admins', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admins_list', 'admin_criar', 'admin_remover', 'auditoria_list']);
 
 // Acoes que alteram dados e por isso entram na trilha de auditoria (as de leitura ficam de fora).
 const AUDITED_ACTIONS = new Set([
-  'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admin_adicionar', 'admin_remover',
+  'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admin_criar', 'admin_remover',
   'usuario_criar', 'usuario_atualizar', 'usuario_resetar_senha',
   'cadastro_salvar', 'cadastro_excluir', 'integracao_gmail_salvar', 'catalogo_salvar', 'catalogo_excluir',
   'tenant_marca_salvar', 'marca_salvar',

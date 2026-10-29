@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
+  Label,
   MoneyLoader,
   Table,
   TableBody,
@@ -32,6 +33,7 @@ const ROTULOS_ACAO = {
   tenant_atualizar: 'Cliente atualizado',
   tenant_excluir: 'Cliente excluído',
   tenant_admin_resetar_senha: 'Senha de administrador de cliente redefinida',
+  admin_criar: 'Administrador da plataforma criado',
   admin_adicionar: 'Administrador da plataforma adicionado',
   admin_remover: 'Administrador da plataforma removido',
   usuario_criar: 'Usuário criado',
@@ -56,7 +58,10 @@ export function AdministradoresTab() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const meuId = user?.id || null;
+  const [novoAberto, setNovoAberto] = useState(false);
+  const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
+  const [resultado, setResultado] = useState(null);
   const [remover, setRemover] = useState(null);
 
   const query = useQuery({ queryKey: adminsKey, queryFn: () => adminApi.plataforma.admins() });
@@ -65,14 +70,20 @@ export function AdministradoresTab() {
     queryClient.invalidateQueries({ queryKey: auditoriaKey });
   };
 
-  const adicionarMutation = useMutation({
-    mutationFn: () => adminApi.plataforma.adicionarAdmin(email.trim()),
-    onSuccess: () => {
-      toast({ title: 'Administrador adicionado' });
-      setEmail('');
+  const fecharNovo = () => {
+    setNovoAberto(false);
+    setNome('');
+    setEmail('');
+    setResultado(null);
+  };
+
+  const criarMutation = useMutation({
+    mutationFn: () => adminApi.plataforma.criarAdmin({ nome: nome.trim(), email: email.trim() }),
+    onSuccess: ({ row }) => {
+      setResultado({ email: row.email, senha: row.senha_temporaria, emailEnviado: row.email_enviado });
       refresh();
     },
-    onError: (error) => toast({ title: 'Não foi possível adicionar', description: error.message }),
+    onError: (error) => toast({ title: 'Não foi possível criar o administrador', description: error.message }),
   });
 
   const removerMutation = useMutation({
@@ -90,19 +101,64 @@ export function AdministradoresTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold">Administradores da plataforma</h2>
-        <p className="text-sm text-muted-foreground">
-          Quem pode criar e desativar clientes. O usuário precisa já existir (criado em algum cliente).
-        </p>
-      </div>
-
-      <div className="flex max-w-xl gap-2">
-        <Input type="email" placeholder="E-mail do usuário" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <Button disabled={!email.trim() || adicionarMutation.isPending} onClick={() => adicionarMutation.mutate()}>
-          <Plus className="mr-1 h-4 w-4" /> Adicionar
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-bold">Administradores da plataforma</h2>
+          <p className="text-sm text-muted-foreground">
+            Quem pode criar e desativar clientes. A conta é exclusiva da plataforma: não acessa o sistema de nenhum cliente.
+          </p>
+        </div>
+        <Button onClick={() => setNovoAberto(true)}>
+          <Plus className="mr-1 h-4 w-4" /> Novo administrador
         </Button>
       </div>
+
+      <Dialog open={novoAberto} onOpenChange={(aberto) => !aberto && fecharNovo()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo administrador da plataforma</DialogTitle>
+            <DialogDescription>
+              {resultado
+                ? resultado.emailEnviado
+                  ? `Enviamos o acesso para ${resultado.email}.`
+                  : 'Envie os dados abaixo ao administrador. A senha não será exibida novamente.'
+                : 'Cria uma conta nova com senha temporária. Use um e-mail que ainda não tenha conta.'}
+            </DialogDescription>
+          </DialogHeader>
+          {resultado?.emailEnviado ? null : resultado ? (
+            <div className="space-y-1 rounded-md border bg-muted p-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">E-mail:</span> {resultado.email}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Senha:</span>{' '}
+                <code className="select-all font-mono">{resultado.senha}</code>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="novo-adm-nome">Nome</Label>
+                <Input id="novo-adm-nome" value={nome} onChange={(e) => setNome(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="novo-adm-email">E-mail</Label>
+                <Input id="novo-adm-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            {resultado ? null : (
+              <Button disabled={criarMutation.isPending || !nome.trim() || !email.trim()} onClick={() => criarMutation.mutate()}>
+                {criarMutation.isPending ? 'Criando...' : 'Criar administrador'}
+              </Button>
+            )}
+            <Button variant="outline" onClick={fecharNovo}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {query.isLoading ? (
         <MoneyLoader inline />

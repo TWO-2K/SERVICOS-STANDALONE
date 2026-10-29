@@ -115,8 +115,8 @@ export const adminApi = {
       const result = await invokeAdmin({ action: 'admins_list' });
       return result.rows || [];
     },
-    async adicionarAdmin(email) {
-      return invokeAdmin({ action: 'admin_adicionar', email });
+    async criarAdmin(dados) {
+      return invokeAdmin({ action: 'admin_criar', ...dados });
     },
     async removerAdmin(userId) {
       return invokeAdmin({ action: 'admin_remover', user_id: userId });
