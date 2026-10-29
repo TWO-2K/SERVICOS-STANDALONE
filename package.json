@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "vite --config apps/servicos/vite.config.js --configLoader runner",
-    "dev:plataforma": "vite --config apps/plataforma/vite.config.js --configLoader runner",
+    "dev:plataforma": "vite --config apps/plataforma/vite.config.js --configLoader runner --mode production",
     "build": "vite build --config apps/servicos/vite.config.js --configLoader runner && vite build --config apps/plataforma/vite.config.js --configLoader runner",
     "preview": "vite preview --config apps/servicos/vite.config.js --configLoader runner",
     "preview:plataforma": "vite preview --config apps/plataforma/vite.config.js --configLoader runner",

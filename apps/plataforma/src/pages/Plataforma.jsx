@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { adminApi } from '@/shared/api/adminApi';
 import {
@@ -30,7 +30,7 @@ import {
 } from '@/shared/ui';
 
 import { useAdminMe } from '@/hooks/useAdminMe';
-import { EditarClienteDialog, RedefinirSenhaAdminDialog } from '@/pages/PlataformaClienteDialogs';
+import { EditarClienteDialog, ExcluirClienteDialog, RedefinirSenhaAdminDialog } from '@/pages/PlataformaClienteDialogs';
 import { AdministradoresTab, AuditoriaTab } from '@/pages/PlataformaAdmin';
 import { CatalogosTab } from '@/pages/PlataformaCatalogos';
 
@@ -57,6 +57,7 @@ function ClientesTab() {
   const [credenciais, setCredenciais] = useState(null);
   const [editando, setEditando] = useState(null);
   const [redefinindo, setRedefinindo] = useState(null);
+  const [excluindo, setExcluindo] = useState(null);
 
   const query = useQuery({ queryKey: tenantsKey, queryFn: () => adminApi.tenants.list() });
   const rows = query.data || [];
@@ -93,7 +94,7 @@ function ClientesTab() {
           <h2 className="text-xl font-bold">Clientes</h2>
           <p className="text-sm text-muted-foreground">
             Clientes (empresas contratantes) do sistema. Cada cliente enxerga só os próprios dados. Desativar bloqueia o
-            acesso aos dados sem apagar nada.
+            acesso aos dados sem apagar nada; clientes desativados podem ser excluídos definitivamente.
           </p>
         </div>
         <Button onClick={() => setCriarAberto(true)}>
@@ -133,7 +134,8 @@ function ClientesTab() {
                   <TableCell className="text-right">
                     <Switch
                       checked={row.ativo}
-                      disabled={atualizarMutation.isPending || row.id === meuTenantId}
+                      disabled={atualizarMutation.isPending || row.id === meuTenantId || row.slug === 'padrao'}
+                      title={row.slug === 'padrao' ? 'Cliente de teste fixo' : undefined}
                       onCheckedChange={(ativo) => atualizarMutation.mutate({ id: row.id, dados: { ativo } })}
                     />
                   </TableCell>
@@ -149,6 +151,11 @@ function ClientesTab() {
                     >
                       <KeyRound className="h-4 w-4" />
                     </Button>
+                    {row.slug !== 'padrao' && row.id !== meuTenantId && !row.ativo ? (
+                      <Button variant="ghost" size="icon" aria-label="Excluir cliente" onClick={() => setExcluindo(row)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}
@@ -159,6 +166,7 @@ function ClientesTab() {
 
       <EditarClienteDialog cliente={editando} onClose={() => setEditando(null)} onSalvo={refresh} />
       <RedefinirSenhaAdminDialog cliente={redefinindo} onClose={() => setRedefinindo(null)} />
+      <ExcluirClienteDialog cliente={excluindo} onClose={() => setExcluindo(null)} onExcluido={refresh} />
 
       <Dialog open={criarAberto} onOpenChange={setCriarAberto}>
         <DialogContent>

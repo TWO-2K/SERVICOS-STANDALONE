@@ -105,7 +105,8 @@ catálogo de veículos (marcas, modelos, versões, cores, categorias).
 - [x] Fluxo completo no navegador exercitado (tenant padrão): solicitação com anexo → aprovação → pagamento (notificações geradas, download do anexo por URL assinada) e checklist da Oficina (cadastro de veículo, 7 passos, 2 fotos, assinatura do cliente, conclusão, fotos e assinatura exibidas no documento). Achado: as URLs assinadas saíam com o host interno do Docker (`kong:8000`); `_shared/storage-url.ts` troca a origem quando `PUBLIC_SUPABASE_URL` está definida (já no `.env.local`; em produção não é necessária).
 - [x] Catálogos de veículo (`marcas_veiculo`, `modelos_veiculo`, `cores_veiculo`, `categorias_veiculo`) são globais; a migration 20260101001100 traz um conjunto padrão (18 marcas, 58 modelos, 13 cores, 6 categorias), então todo cliente novo já cadastra veículo.
 - [x] Plataforma → **Catálogos**: criar, editar, ativar/desativar e excluir marcas, modelos, categorias e cores (admin-api `catalogo_*`, auditado). Excluir item em uso é recusado (desative). Migration 20260101001400: as policies `*_manage` davam escrita direta (REST) a qualquer admin/gestor de qualquer cliente nesses catálogos globais; foram removidas (cliente só lê). Coberto em `npm test` (17 casos). Versões de modelo (`versoes_veiculo`) não têm tela (o app não as usa).
-- [ ] `seed.sql` e o tenant `55555555-...` ("Tenant padrao") são só para dev local.
+- [ ] `seed.sql` (usuário `admin@servicos.local`) é só para dev local.
+- [x] O tenant `55555555-...` ("Tenant padrao", slug `padrao`) é o **cliente de teste fixo**, inclusive em produção: usar para testar entrada de dados e regras. Nele, cadastrar só e-mails/contatos próprios (e-mail, push e lembrete das 9h disparam de verdade). Continua aparecendo como cliente no painel da plataforma.
 
 ---
 

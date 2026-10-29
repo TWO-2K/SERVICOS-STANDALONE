@@ -145,6 +145,9 @@ export const adminApi = {
       const result = await invokeAdmin({ action: 'tenant_atualizar', id, ...dados });
       return result.row;
     },
+    async excluir(id, confirmarSlug) {
+      return invokeAdmin({ action: 'tenant_excluir', id, confirmar_slug: confirmarSlug });
+    },
     async salvarMarca(tenantId, dados) {
       const result = await invokeAdmin({ action: 'tenant_marca_salvar', tenant_id: tenantId, ...dados });
       return result.marca;

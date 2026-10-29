@@ -174,3 +174,53 @@ export function RedefinirSenhaAdminDialog({ cliente, onClose }) {
     </Dialog>
   );
 }
+
+export function ExcluirClienteDialog({ cliente, onClose, onExcluido }) {
+  const { toast } = useToast();
+  const [slug, setSlug] = useState('');
+
+  useEffect(() => {
+    setSlug('');
+  }, [cliente]);
+
+  const excluirMutation = useMutation({
+    mutationFn: () => adminApi.tenants.excluir(cliente.id, slug.trim()),
+    onSuccess: (result) => {
+      const falhas = result.falhas || [];
+      toast({
+        title: 'Cliente excluído',
+        description: falhas.length ? `Não foi possível limpar: ${falhas.join(', ')}.` : undefined,
+      });
+      onExcluido();
+      onClose();
+    },
+    onError: (error) => toast({ title: 'Não foi possível excluir o cliente', description: error.message }),
+  });
+
+  const confirmado = Boolean(cliente) && slug.trim().toLowerCase() === cliente.slug.toLowerCase();
+
+  return (
+    <Dialog open={Boolean(cliente)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Excluir cliente</DialogTitle>
+          <DialogDescription>
+            Apaga definitivamente {cliente?.nome || ''} e tudo dele: dados, usuários, anexos e fotos. Não há como desfazer.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1">
+          <Label htmlFor="excluir-slug">Digite o identificador ({cliente?.slug}) para confirmar</Label>
+          <Input id="excluir-slug" value={slug} onChange={(e) => setSlug(e.target.value)} autoComplete="off" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" disabled={!confirmado || excluirMutation.isPending} onClick={() => excluirMutation.mutate()}>
+            Excluir definitivamente
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

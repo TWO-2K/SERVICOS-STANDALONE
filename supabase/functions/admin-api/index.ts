@@ -21,7 +21,9 @@ import { listWhatsappProviders, WHATSAPP_INTEGRACAO_CHAVE } from '../_shared/wha
 
 const SERVICOS_SYSTEM_SLUG = 'servicos';
 const NIVEIS_ACESSO = ['usuario', 'gestor', 'admin'] as const;
-const STATUS_USUARIO = ['ativo', 'inativo', 'afastado'] as const;
+// Cliente de teste fixo: nao pode ser desativado nem excluido (tambem protegido por trigger no banco).
+const TENANT_PADRAO_ID = '55555555-5555-5555-5555-555555555555';
+const STATUS_USUARIO =['ativo', 'inativo', 'afastado'] as const;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,38})[a-z0-9]$/;
 const CATEGORIAS_PADRAO = [
@@ -640,6 +642,9 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
     if (ativo === false && id === tenantIdOf(collaborator)) {
       throw httpError('Voce nao pode desativar o proprio cliente.');
     }
+    if (ativo === false && id === TENANT_PADRAO_ID) {
+      throw httpError('O cliente padrao e fixo e nao pode ser desativado.');
+    }
     const rows = await sqlPool!.unsafe(
       `
         update public.tenants set
@@ -654,6 +659,63 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
     );
     if (!rows[0]) throw httpError('Cliente nao encontrado.', 404);
     return { row: rows[0] };
+  }
+
+  if (action === 'tenant_excluir') {
+    const id = uuidOuNull(body.id, 'Cliente');
+    if (!id) throw httpError('Cliente obrigatorio.');
+    if (id === TENANT_PADRAO_ID) throw httpError('O cliente padrao e fixo e nao pode ser excluido.');
+    if (id === tenantIdOf(collaborator)) throw httpError('Voce nao pode excluir o proprio cliente.');
+    const tenant = (await sqlPool!.unsafe(`select nome, slug, ativo, marca_logo_path from public.tenants where id = $1;`, [id]))[0];
+    if (!tenant) throw httpError('Cliente nao encontrado.', 404);
+    if (tenant.ativo) throw httpError('Desative o cliente antes de exclui-lo.');
+    if (texto(body.confirmar_slug, 40).toLowerCase() !== String(tenant.slug).toLowerCase()) {
+      throw httpError('Para confirmar, digite o identificador (slug) do cliente.');
+    }
+    const admins = await sqlPool!.unsafe(
+      `select 1 from plataforma.administradores pa join public.colaboradores c on c.id = pa.user_id where c.tenant_id = $1 limit 1;`,
+      [id],
+    );
+    if (admins.length) throw httpError('Este cliente tem um administrador da plataforma. Remova-o da lista de administradores antes.');
+
+    // Levanta o que precisa ser limpo fora das tabelas (usuarios do Auth e arquivos do Storage) antes de apagar.
+    const usuarios = (await sqlPool!.unsafe(`select id from public.colaboradores where tenant_id = $1;`, [id])).map((u: Json) => String(u.id));
+    const arquivos = await sqlPool!.unsafe(
+      `
+        select bucket_id, name from storage.objects
+        where (bucket_id = 'comprovantes-pagamento'
+                and (storage.foldername(name))[1] in (select s.id::text from gestao_servicos.solicitacoes_pagamento s where s.tenant_id = $1))
+           or (bucket_id = 'oficina-checklist-fotos'
+                and (storage.foldername(name))[1] in (select a.id::text from gestao_servicos.checklist_avaliacoes a where a.tenant_id = $1))
+           or (bucket_id = 'assinaturas' and (storage.foldername(name))[1] = 'colaboradores'
+                and (storage.foldername(name))[2] = any($2::text[]));
+      `,
+      [id, usuarios],
+    );
+
+    await sqlPool!.unsafe(`select plataforma.excluir_tenant($1::uuid);`, [id]);
+
+    // Dados ja apagados: a limpeza abaixo e best-effort e informa o que sobrou.
+    const admin = authAdminClient();
+    const falhas: string[] = [];
+    const porBucket = new Map<string, string[]>();
+    for (const a of arquivos) {
+      const lista = porBucket.get(String(a.bucket_id)) ?? [];
+      lista.push(String(a.name));
+      porBucket.set(String(a.bucket_id), lista);
+    }
+    if (tenant.marca_logo_path) porBucket.set('marcas', [...(porBucket.get('marcas') ?? []), String(tenant.marca_logo_path)]);
+    for (const [bucket, nomes] of porBucket) {
+      for (let i = 0; i < nomes.length; i += 100) {
+        const { error } = await admin.storage.from(bucket).remove(nomes.slice(i, i + 100));
+        if (error) falhas.push(`arquivos de ${bucket}`);
+      }
+    }
+    for (const userId of usuarios) {
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error) falhas.push(`usuario ${userId}`);
+    }
+    return { excluido: { id, nome: tenant.nome, slug: tenant.slug, usuarios: usuarios.length, arquivos: arquivos.length }, falhas };
   }
 
   if (action === 'tenant_admins') {
@@ -917,17 +979,17 @@ const CATALOGOS = ['marcas', 'categorias', 'cores', 'modelos'] as const;
 const TABELA_CATALOGO = { marcas: 'marcas_veiculo', categorias: 'categorias_veiculo', cores: 'cores_veiculo', modelos: 'modelos_veiculo' } as const;
 
 const MARCA_ACTIONS = new Set(['marca_obter', 'marca_salvar']);
-const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_admins', 'tenant_admin_resetar_senha', 'admins_list', 'admin_adicionar', 'admin_remover', 'auditoria_list']);
+const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admins', 'tenant_admin_resetar_senha', 'admins_list', 'admin_adicionar', 'admin_remover', 'auditoria_list']);
 
 // Acoes que alteram dados e por isso entram na trilha de auditoria (as de leitura ficam de fora).
 const AUDITED_ACTIONS = new Set([
-  'tenant_criar', 'tenant_atualizar', 'tenant_admin_resetar_senha', 'admin_adicionar', 'admin_remover',
+  'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admin_resetar_senha', 'admin_adicionar', 'admin_remover',
   'usuario_criar', 'usuario_atualizar', 'usuario_resetar_senha',
   'cadastro_salvar', 'cadastro_excluir', 'integracao_gmail_salvar', 'catalogo_salvar', 'catalogo_excluir',
   'tenant_marca_salvar', 'marca_salvar',
 ]);
 // Somente estes campos do corpo vao para o log: nunca senhas, segredos ou tokens.
-const AUDIT_FIELDS = ['nome', 'slug', 'email', 'admin_email', 'admin_nome', 'ativo', 'plano', 'nivel_acesso', 'status', 'tipo', 'marca_id', 'categoria_veiculo_id', 'sender', 'client_id', 'marca_nome', 'marca_cor', 'remover_logo', 'id', 'user_id', 'tenant_id'];
+const AUDIT_FIELDS = ['nome', 'slug', 'confirmar_slug', 'email', 'admin_email', 'admin_nome', 'ativo', 'plano', 'nivel_acesso', 'status', 'tipo', 'marca_id', 'categoria_veiculo_id', 'sender', 'client_id', 'marca_nome', 'marca_cor', 'remover_logo', 'id', 'user_id', 'tenant_id'];
 
 async function registrarAuditoria(user: { id: string; email?: string }, tenantId: string | null, action: string, body: Json, result: Json) {
   try {
@@ -988,7 +1050,7 @@ Deno.serve(async (request) => {
       const resultado = await handlePlatformAction(action, body, collaborator);
       if (AUDITED_ACTIONS.has(action)) {
         const r = resultado as Json;
-        const alvoTenant = uuidOuNull((r.tenant as Json | undefined)?.id ?? (r.row as Json | undefined)?.id ?? body.tenant_id ?? body.id, 'Cliente');
+        const alvoTenant = action === 'tenant_excluir' ? null : uuidOuNull((r.tenant as Json | undefined)?.id ?? (r.row as Json | undefined)?.id ?? body.tenant_id ?? body.id, 'Cliente');
         await registrarAuditoria(user, action.startsWith('tenant_') ? alvoTenant : null, action, body, {});
       }
       return json(resultado);

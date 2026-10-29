@@ -30,6 +30,7 @@ const auditoriaKey = ['servicos', 'admin-plataforma-auditoria'];
 const ROTULOS_ACAO = {
   tenant_criar: 'Cliente criado',
   tenant_atualizar: 'Cliente atualizado',
+  tenant_excluir: 'Cliente excluído',
   tenant_admin_resetar_senha: 'Senha de administrador de cliente redefinida',
   admin_adicionar: 'Administrador da plataforma adicionado',
   admin_remover: 'Administrador da plataforma removido',
