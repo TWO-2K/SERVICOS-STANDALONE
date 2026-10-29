@@ -105,7 +105,7 @@ export default function Aprovacoes() {
       .channel(`servicos-solicitacoes-aprovacoes:${realtimeInstanceId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'gestao_servicos', table: 'solicitacoes_pagamento' },
+        { event: '*', schema: 'public', table: 'solicitacoes_pagamento' },
         (payload) => {
           console.log('[realtime][aprovacoes] evento recebido', payload);
           queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });

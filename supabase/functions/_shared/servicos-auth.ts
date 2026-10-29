@@ -1,6 +1,6 @@
 // Camada de autenticacao/autorizacao do sistema Servicos (Camada 1: acesso ao
 // sistema em public.acessos_usuario_sistema; Camada 2: papel por modulo em
-// gestao_servicos.permissoes_modulo). Extraida como COPIA da logica que ja
+// public.permissoes_modulo). Extraida como COPIA da logica que ja
 // existe em supabase/functions/servicos-api/index.ts, para servir tambem a
 // servicos-oficina-api sem colar a mesma implementacao em cada function nova.
 //
@@ -21,7 +21,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import type postgres from 'https://deno.land/x/postgresjs@v3.4.5/mod.js';
 
-const SERVICOS_SCHEMA = 'gestao_servicos';
+const SERVICOS_SCHEMA = 'public';
 const SERVICOS_SYSTEM_SLUG = 'servicos';
 
 export type SqlClient = ReturnType<typeof postgres>;

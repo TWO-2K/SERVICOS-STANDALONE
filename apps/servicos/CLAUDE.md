@@ -68,7 +68,7 @@ Duas camadas, mesmo padrão que a intranet usa (`gestao_intranet.permissoes_usua
   `servicos`), concedida na console `admin` (`SystemAccessManagement.jsx`). Responde só "essa
   pessoa pode entrar no Servicos?". `nivel_acesso = 'admin'` bypassa a Camada 2 em todo módulo
   (super-admin do sistema).
-- **Camada 2 — papel por módulo**: `gestao_servicos.permissoes_modulo` — tabela normalizada
+- **Camada 2 — papel por módulo**: `public.permissoes_modulo` — tabela normalizada
   (`colaborador_id, modulo, papel`, unique por par), gerenciada dentro do próprio app em
   `/permissoes` (`src/pages/Permissoes.jsx`, visível só pra quem é `admin` na Camada 1). Modelo
   normalizado (não uma coluna `mod_<modulo>` por módulo, como na primeira versão em
@@ -90,7 +90,7 @@ Duas camadas, mesmo padrão que a intranet usa (`gestao_intranet.permissoes_usua
     array `papeis`, controla o Select da tela de Permissões). Módulo novo com o mesmo tipo de
     hierarquia = só adicionar a chave nos dois lugares reaproveitando o array de papéis
     existente. Módulo novo com papéis diferentes = adicionar a chave com seu próprio array nos
-    dois lugares e alargar o `check` de `gestao_servicos.permissoes_modulo.papel` via migration
+    dois lugares e alargar o `check` de `public.permissoes_modulo.papel` via migration
     (o `CHECK` no banco é defesa em profundidade — a validação por módulo já acontece na edge
     function, mas o `CHECK` evita que alguém com acesso direto à tabela grave um papel fora do
     conjunto conhecido).
@@ -108,7 +108,7 @@ Duas camadas, mesmo padrão que a intranet usa (`gestao_intranet.permissoes_usua
 papel `financeiro` (na etapa de pagamento) veem a solicitação — `contas_a_pagar` fica de fora
 (mesmo tendo acesso amplo às demais formas de pagamento via `isPagador`), e a regra de "mesmo
 setor" (ver abaixo) não amplia a visibilidade nesse caso. Configurável (liga/desliga) via
-`gestao_servicos.configuracoes_modulo.restringir_visibilidade_pagamento_dinheiro` (linha única,
+`public.configuracoes_modulo.restringir_visibilidade_pagamento_dinheiro` (linha única,
 default `true`, fail-safe `true` se a linha não existir) — não existe mecanismo de
 configuração/feature-flag genérico no sistema, essa tabela foi criada só pra esse caso, mas
 desenhada pra reaproveitar (próximo flag do módulo vira só mais uma coluna na mesma linha). Toggle
@@ -173,7 +173,7 @@ reais (só adicionar coluna `mod_<novo>` na tabela, seguindo o mesmo padrão).
   - Histórico: ação `historico` lê `historico_solicitacao` (timeline de eventos: `criada`,
     `aprovada`, `reprovada`, `parcela_criada`, `parcela_paga`, `pago`) — gravado pela própria
     function via `insertHistorico()` a cada transição, sem precisar de trigger.
-  - Fornecedores (`gestao_servicos.fornecedores`): cadastro exclusivo do papel `financeiro`
+  - Fornecedores (`public.fornecedores`): cadastro exclusivo do papel `financeiro`
     (checado via `isFinanceiro(moduleRole)`, que já cobre admin da Camada 1 — `getServicosModuleRole`
     retorna `'financeiro'` pra admin). Tela dedicada `/fornecedores` (`src/pages/Fornecedores.jsx`,
     no menu pra `isPagador`): o financeiro gerencia; o `contas_a_pagar` só consulta (sem
@@ -198,7 +198,7 @@ reais (só adicionar coluna `mod_<novo>` na tabela, seguindo o mesmo padrão).
     (`src/pages/Fornecedores.jsx`) com todos os campos; a tabela continua enxuta (nome,
     documento, status). `list_fornecedores` (catálogo do drawer de nova solicitação) não mudou —
     continua só `id, nome`.
-  - Categorias (`gestao_servicos.categorias`): mesmo padrão de fornecedores (cadastro exclusivo
+  - Categorias (`public.categorias`): mesmo padrão de fornecedores (cadastro exclusivo
     do papel `financeiro`, tela dedicada `/categorias` — `src/pages/Categorias.jsx`, ações
     `list_categorias_admin`/`criar_categoria`/`atualizar_categoria`, `list_categorias` só ativas
     pro select do `NovaSolicitacaoDrawer.jsx`), substituindo o enum fixo antigo (`fornecedor |
@@ -211,7 +211,7 @@ reais (só adicionar coluna `mod_<novo>` na tabela, seguindo o mesmo padrão).
   - Toda a autorização é feita em código na função (não há motor genérico de entidades como em
     `intranet-api`/`crm-api` — este app tem uma entidade principal, não precisou do padrão
     `ENTITY_CONFIG`).
-- Schema: `gestao_servicos` (renomeado de `gestao_pagamentos` na migration
+- Schema: `public` (antes `gestao_servicos`) (renomeado de `gestao_pagamentos` na migration
   `20260720120000_rename_pagamentos_to_servicos.sql`; tabela original criada em
   `20260716090000_add_gestao_pagamentos_core.sql`)
   - Tabelas: `solicitacoes_pagamento` (ganhou `numero`, `titulo`, `empresa_id`,
@@ -277,7 +277,7 @@ duplicar cadastro: `funcionario` (do app original) não existe aqui — quem faz
 mesmas tabelas usadas pelo CRM, extraídas propositalmente pra esse reuso — ver comentários em
 `20260910130000_extract_public_veiculos.sql` e `20260915120000_extract_public_clientes.sql`).
 
-- Tabelas (schema `gestao_servicos`): `checklist_avaliacoes` (registro principal — cliente_id,
+- Tabelas (schema `public` (antes `gestao_servicos`)): `checklist_avaliacoes` (registro principal — cliente_id,
   veiculo_id, colaborador_id, status `em_andamento|finalizado`), `checklist_avarias` (marcas de
   dano posicionadas em % sobre o diagrama do veículo) e `checklist_itens` (itens verificados por
   categoria). Migration `20260917020000_add_gestao_servicos_oficina_checklist.sql`.
@@ -445,7 +445,7 @@ Fluxo (`handleAbrirAssinaturaAnexo` → `PositionSignatureModal` com namespace d
 (mesmo bucket/padrão de path de `anexoUpload.js`) e chama a ação `assinar_anexo` da `servicos-api`,
 que atualiza `storage_path`/`nome_arquivo`/`tamanho_bytes` **na mesma linha** de
 `anexos_solicitacao` (apaga o arquivo antigo do Storage), insere em
-`gestao_servicos.assinaturas_anexo` (migration `20260831130000_add_servicos_anexo_assinatura.sql`)
+`public.assinaturas_anexo` (migration `20260831130000_add_servicos_anexo_assinatura.sql`)
 e grava `anexo_assinado` em `historico_solicitacao`.
 
 `anexos_solicitacao.assinaturas_necessarias` (1 ou 2, hoje sempre 1 — "mão dupla" com 2 ainda não

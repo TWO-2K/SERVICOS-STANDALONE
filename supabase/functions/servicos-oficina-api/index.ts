@@ -19,7 +19,7 @@ import {
   upperOrNull,
 } from '../_shared/formatacao.ts';
 
-const SERVICOS_SCHEMA = 'gestao_servicos';
+const SERVICOS_SCHEMA = 'public';
 const MODULO = 'oficina';
 const FOTOS_STORAGE_BUCKET = 'oficina-checklist-fotos';
 const FOTO_SIGNED_URL_TTL_SECONDS = 10 * 60;
@@ -1172,7 +1172,7 @@ async function handleRequest(request: Request): Promise<Response> {
             v.id, v.placa, v.chassi, cv.nome as cor, v.km, v.eh_teste, v.origem_cadastro,
             mv.nome as modelo_nome, ma.nome as marca_nome,
             v.cliente_atual_id, c.nome as cliente_atual_nome,
-            (select count(*) from gestao_servicos.checklist_avaliacoes ca where ca.veiculo_id = v.id) as total_checklists
+            (select count(*) from public.checklist_avaliacoes ca where ca.veiculo_id = v.id) as total_checklists
           from public.veiculos v
           left join public.modelos_veiculo mv on mv.id = v.modelo_id
           left join public.marcas_veiculo ma on ma.id = mv.marca_id

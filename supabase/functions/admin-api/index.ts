@@ -575,7 +575,7 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
       select t.id, t.nome, t.slug, t.ativo, t.plano, t.criado_em, t.marca_nome, t.marca_cor, t.marca_logo_path,
         (select count(*)::int from public.colaboradores c where c.tenant_id = t.id
           and c.id not in (select user_id from plataforma.administradores)) as usuarios,
-        (select count(*)::int from gestao_servicos.solicitacoes_pagamento sp where sp.tenant_id = t.id) as solicitacoes
+        (select count(*)::int from public.solicitacoes_pagamento sp where sp.tenant_id = t.id) as solicitacoes
       from public.tenants t
       order by t.criado_em;
     `);
@@ -615,7 +615,7 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
           [empresaNome, slug, tenantId],
         );
         await sql!.unsafe(
-          `insert into gestao_servicos.configuracoes_modulo (modulo, restringir_visibilidade_pagamento_dinheiro, tenant_id)
+          `insert into public.configuracoes_modulo (modulo, restringir_visibilidade_pagamento_dinheiro, tenant_id)
            values ('financeiro', true, $1) on conflict (tenant_id, modulo) do nothing;`,
           [tenantId],
         );
@@ -626,7 +626,7 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
         );
         // Sem categorias o formulario de solicitacao nao deixa enviar; o cliente ajusta depois em Catalogos.
         await sql!.unsafe(
-          `insert into gestao_servicos.categorias (nome, tenant_id)
+          `insert into public.categorias (nome, tenant_id)
            select n, $1 from unnest($2::text[]) as n on conflict do nothing;`,
           [tenantId, CATEGORIAS_PADRAO],
         );
@@ -699,9 +699,9 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
       `
         select bucket_id, name from storage.objects
         where (bucket_id = 'comprovantes-pagamento'
-                and (storage.foldername(name))[1] in (select s.id::text from gestao_servicos.solicitacoes_pagamento s where s.tenant_id = $1))
+                and (storage.foldername(name))[1] in (select s.id::text from public.solicitacoes_pagamento s where s.tenant_id = $1))
            or (bucket_id = 'oficina-checklist-fotos'
-                and (storage.foldername(name))[1] in (select a.id::text from gestao_servicos.checklist_avaliacoes a where a.tenant_id = $1))
+                and (storage.foldername(name))[1] in (select a.id::text from public.checklist_avaliacoes a where a.tenant_id = $1))
            or (bucket_id = 'assinaturas' and (storage.foldername(name))[1] = 'colaboradores'
                 and (storage.foldername(name))[2] = any($2::text[]));
       `,

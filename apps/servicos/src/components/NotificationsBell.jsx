@@ -79,7 +79,7 @@ export default function NotificationsBell({ buttonClassName = '' }) {
         'postgres_changes',
         {
           event: 'INSERT',
-          schema: 'gestao_servicos',
+          schema: 'public',
           table: 'notificacoes',
           filter: `colaborador_id=eq.${colaboradorId}`,
         },

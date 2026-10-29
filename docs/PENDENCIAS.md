@@ -106,7 +106,7 @@ Os itens 3 e 6 abaixo já foram feitos no remoto (migrations, functions, secrets
 - [x] CRM removido por completo (migration 20260101001000: `drop schema gestao_crm`): sem estoque/propostas/vendas, sem o botão "Promover para estoque" na Oficina, sem `crmApi`. Cadastros de clientes e veículos da Oficina seguem em `public`.
 - [x] Bug corrigido no proxy por tenant: `sql.begin` não existia dentro da transação da requisição e quebrava criar/transferir/excluir veículo e iniciar checklist (agora vira SAVEPOINT). Coberto pelo teste da Oficina.
 - [x] apps/servicos/CLAUDE.md atualizado (seção Multi-tenant no topo; menções ao monorepo marcadas como histórico).
-- [ ] Decidir sobre `notificacoes.*` x `gestao_servicos.notificacoes` e `integracoes` (hoje mantidos).
+- [ ] Decidir sobre `notificacoes.*` x `public.notificacoes` e `integracoes` (hoje mantidos).
 - [x] `supabase/schema_remoto.sql` e `docs/migrations_originais_referencia/` apagados (continham a marca original e vestígios de URLs/chaves antigas).
 
 **Esforço restante:** baixo. **Risco:** médio até as telas serem testadas.

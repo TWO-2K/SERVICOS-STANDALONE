@@ -8,7 +8,7 @@ import { buildCorsHeaders } from '../_shared/cors.ts';
 import { sendPushToColaborador } from '../_shared/push.ts';
 import postgres from 'https://deno.land/x/postgresjs@v3.4.5/mod.js';
 
-const SERVICOS_SCHEMA = 'gestao_servicos';
+const SERVICOS_SCHEMA = 'public';
 const SERVICOS_SYSTEM_SLUG = 'servicos';
 const LEMBRETE_INTERVALO_HORAS = 24;
 

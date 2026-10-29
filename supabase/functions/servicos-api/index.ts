@@ -33,13 +33,13 @@ import {
   setStatusBodySchema,
 } from '../_shared/validation.ts';
 
-const SERVICOS_SCHEMA = 'gestao_servicos';
+const SERVICOS_SCHEMA = 'public';
 const SERVICOS_SYSTEM_SLUG = 'servicos';
 // Registro central dos modulos com Camada 2 de permissao, cada um com seu proprio
 // conjunto de papeis validos (nem todo modulo futuro precisa da mesma hierarquia
 // de aprovacao do Financeiro). Novo modulo = so adicionar aqui (a tabela e
 // normalizada, nao exige migration) — so precisa de migration se o modulo usar um
-// papel que ainda nao esta no CHECK de gestao_servicos.permissoes_modulo.papel.
+// papel que ainda nao esta no CHECK de public.permissoes_modulo.papel.
 const SERVICOS_MODULOS_CONFIG = {
   financeiro: { papeis: ['nenhum', 'usuario', 'aprovador', 'financeiro', 'contas_a_pagar'] },
   // Checklist de inspecao (servicos-oficina-api, edge function separada) usa esses
@@ -249,7 +249,7 @@ function isPagador(moduleRole: string | null) {
   return moduleRole === 'financeiro' || moduleRole === 'contas_a_pagar';
 }
 
-// Flag configuravel (gestao_servicos.configuracoes_modulo) que restringe a visibilidade de
+// Flag configuravel (public.configuracoes_modulo) que restringe a visibilidade de
 // solicitacoes em dinheiro a solicitante/aprovador-destino/financeiro, excluindo contas_a_pagar
 // e a ampliacao por setor. Cacheado com TTL curto (mesma ideia do authContextCache) pra nao
 // disparar uma query extra a cada chamada -- o valor muda raramente.
@@ -455,7 +455,7 @@ async function canAccessSolicitacao(
   // Dinheiro: visibilidade restrita a solicitante/aprovador-destino/financeiro, ignorando
   // isPagador (exclui contas_a_pagar) e a ampliacao por setor/unidade -- espelha
   // public.servicos_can_access_solicitacao() no banco. Configuravel via
-  // gestao_servicos.configuracoes_modulo (getRestringeVisibilidadeDinheiro).
+  // public.configuracoes_modulo (getRestringeVisibilidadeDinheiro).
   if (row.forma_pagamento === 'dinheiro' && (await getRestringeVisibilidadeDinheiro())) {
     if (String(row.solicitante_id) === String(collaboradorId || '')) return true;
     if (isFinanceiro(moduleRole)) return true;
@@ -871,7 +871,7 @@ async function insertNotificacao(
   }).catch((error) => console.error('sendPushToColaborador failed:', error));
 
   // Deixa visivel, na propria timeline da solicitacao, quem foi avisado e quando -- sem isso o
-  // unico registro fica em gestao_servicos.notificacoes, sem vinculo visual com a solicitacao.
+  // unico registro fica em public.notificacoes, sem vinculo visual com a solicitacao.
   // papelLabel nulo indica que o colaborador so foi avisado por ser admin do sistema (sem papel
   // funcional na solicitacao, ex. financeiro/aprovador/solicitante) -- nesse caso a notificacao
   // in-app acontece normalmente, mas nao polui o historico com alguem que nao e responsavel por

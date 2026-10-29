@@ -179,11 +179,11 @@ describe('isolamento entre tenants', () => {
   test('storage: so a pasta de uma solicitacao do proprio cliente aceita arquivos', async () => {
     const categoria = (await A.servicos({ action: 'list_categorias' })).data.rows[0];
     assert.ok(categoria, 'cliente A precisa de uma categoria');
-    const fornecedorId = psql(`insert into gestao_servicos.fornecedores (nome, tenant_id) values ('Forn A', '${A.id}') returning id;`).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
+    const fornecedorId = psql(`insert into public.fornecedores (nome, tenant_id) values ('Forn A', '${A.id}') returning id;`).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
     assert.ok(fornecedorId, 'fornecedor de teste nao criado');
 
     const solicitacaoId = psql(`
-      insert into gestao_servicos.solicitacoes_pagamento (solicitante_id, fornecedor, descricao, titulo, valor, forma_pagamento, categoria_id, fornecedor_id, tenant_id)
+      insert into public.solicitacoes_pagamento (solicitante_id, fornecedor, descricao, titulo, valor, forma_pagamento, categoria_id, fornecedor_id, tenant_id)
       values ('${A.colaboradorId}', 'Forn A', 'd', 't', 10, 'pix', '${categoria.id}', '${fornecedorId}', '${A.id}') returning id;
     `).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
     assert.ok(solicitacaoId, 'solicitacao de teste nao criada');

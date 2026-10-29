@@ -9,7 +9,7 @@
 // aprovador = aprova/reprova, financeiro = tambem marca como pago), mas um modulo
 // futuro sem fluxo de aprovacao pode preferir algo mais simples (ex. visualizar/editar).
 // Se um modulo novo precisar de um papel que ainda nao existe, alargar o CHECK de
-// gestao_servicos.permissoes_modulo.papel via migration e manter esse array em
+// public.permissoes_modulo.papel via migration e manter esse array em
 // sincronia com `papeis` do backend (SERVICOS_MODULOS_CONFIG).
 export const PAPEIS_MODULO_FINANCEIRO = [
   { value: 'usuario', label: 'Usuário' },

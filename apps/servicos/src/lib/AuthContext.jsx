@@ -18,7 +18,7 @@ const AuthContext = createContext(null);
 function normalizeServicosUser(authUser, authPayload = {}, oficinaRole = null) {
   const collaborator = authPayload.row || null;
   const access = authPayload.access || null;
-  // Papel efetivo no modulo Financeiro (Camada 2, gestao_servicos.permissoes_modulo):
+  // Papel efetivo no modulo Financeiro (Camada 2, public.permissoes_modulo):
   // usuario = solicitante, aprovador = aprova/reprova, financeiro = tambem marca como pago.
   // Nao confundir com o nivel de acesso ao sistema inteiro (Camada 1).
   const role = authPayload.role || 'usuario';

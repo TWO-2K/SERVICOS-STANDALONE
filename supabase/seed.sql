@@ -44,7 +44,7 @@ select '44444444-4444-4444-4444-444444444444', id, 'admin' from public.sistemas 
 on conflict do nothing;
 
 -- Configuracao padrao do modulo Financeiro (mesma linha que a migration original semeava).
-insert into gestao_servicos.configuracoes_modulo (modulo, restringir_visibilidade_pagamento_dinheiro)
+insert into public.configuracoes_modulo (modulo, restringir_visibilidade_pagamento_dinheiro)
 values ('financeiro', true)
 on conflict (tenant_id, modulo) do nothing;
 

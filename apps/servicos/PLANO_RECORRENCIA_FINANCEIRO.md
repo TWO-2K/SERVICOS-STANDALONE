@@ -38,7 +38,7 @@ Para permitir o valor vazio, entra um status novo, **`rascunho`**, exibido como 
 ## Mudanças
 
 ### Banco (nova migration)
-Em `gestao_servicos.solicitacoes_pagamento`:
+Em `public.solicitacoes_pagamento`:
 - `recorrente boolean not null default false`: a tag.
 - `recorrencia_origem_id uuid references solicitacoes_pagamento(id)`, com **índice único parcial**.
   Garante no máximo uma "próxima" por solicitação, o que protege do caso de reverter e pagar de novo.
