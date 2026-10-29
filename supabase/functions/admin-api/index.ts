@@ -122,6 +122,17 @@ async function getSistemaServicosId() {
   return String(rows[0].id);
 }
 
+// Contas de administrador da plataforma sao do dono do sistema, nao do cliente: nao aparecem na lista de usuarios do
+// cliente e o admin dele nao pode inativar, editar nem redefinir a senha delas.
+async function idsAdminsPlataforma(): Promise<string[]> {
+  const rows = await sqlPool!.unsafe(`select user_id from plataforma.administradores;`);
+  return rows.map((r: { user_id: string }) => String(r.user_id));
+}
+
+async function garantirNaoAdminPlataforma(id: string) {
+  if ((await idsAdminsPlataforma()).includes(id)) throw httpError('Usuario nao encontrado.', 404);
+}
+
 // Cria login + colaborador + acesso ao Servicos no tenant corrente (transacao do tenant). Se algo falhar depois
 // de criado o login, ele e removido.
 async function criarUsuarioNoTenant(tenantId: string, input: {
@@ -436,9 +447,10 @@ async function handleTenantAction(action: string, body: Json, collaborator: Coll
         left join public.acessos_usuario_sistema aus
           on aus.colaborador_id = c.id
          and aus.sistema_id = (select id from public.sistemas where slug = $1)
+        where c.id <> all($2::uuid[])
         order by c.nome;
       `,
-      [SERVICOS_SYSTEM_SLUG],
+      [SERVICOS_SYSTEM_SLUG, await idsAdminsPlataforma()],
     );
     const departamentos = await sql!.unsafe(`select id, nome from public.departamentos order by nome;`);
     const unidades = await sql!.unsafe(`select id, nome, empresa_id from public.unidades order by nome;`);
@@ -472,6 +484,7 @@ async function handleTenantAction(action: string, body: Json, collaborator: Coll
   if (action === 'usuario_atualizar') {
     const id = uuidOuNull(body.id, 'Usuario');
     if (!id) throw httpError('Usuario obrigatorio.');
+    await garantirNaoAdminPlataforma(id);
     const atual = await sql!.unsafe(`select id, status from public.colaboradores where id = $1 limit 1;`, [id]);
     if (!atual[0]) throw httpError('Usuario nao encontrado.', 404);
 
@@ -537,6 +550,7 @@ async function handleTenantAction(action: string, body: Json, collaborator: Coll
   if (action === 'usuario_resetar_senha') {
     const id = uuidOuNull(body.id, 'Usuario');
     if (!id) throw httpError('Usuario obrigatorio.');
+    await garantirNaoAdminPlataforma(id);
     const atual = await sql!.unsafe(`select id, nome, email from public.colaboradores where id = $1 limit 1;`, [id]);
     if (!atual[0]) throw httpError('Usuario nao encontrado.', 404);
 
@@ -726,6 +740,35 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
       [tenantId],
     );
     return { rows };
+  }
+
+  // Adiciona um administrador a um cliente que ja existe (tenant_criar so cria o primeiro).
+  if (action === 'tenant_admin_criar') {
+    const tenantId = uuidOuNull(body.tenant_id, 'Cliente');
+    const nome = texto(body.nome, 120);
+    const email = texto(body.email, 160).toLowerCase();
+    if (!tenantId) throw httpError('Cliente obrigatorio.');
+    if (!nome) throw httpError('Informe o nome.');
+    if (!EMAIL_RE.test(email)) throw httpError('Informe um e-mail valido.');
+    const existe = await sqlPool!.unsafe(`select 1 from public.tenants where id = $1;`, [tenantId]);
+    if (!existe[0]) throw httpError('Cliente nao encontrado.', 404);
+    try {
+      const usuario = await runInTenant(sqlPool!, tenantId, async () => {
+        const empresa = await sql!.unsafe(`select id from public.empresas order by criado_em limit 1;`);
+        return await criarUsuarioNoTenant(tenantId, {
+          nome,
+          email,
+          nivelAcesso: 'admin',
+          departamentoId: null,
+          unidadeId: null,
+          empresaId: empresa[0] ? String(empresa[0].id) : null,
+        });
+      });
+      const emailEnviado = await entregarAcessoPorEmail(tenantId, { nome, email, senha: String(usuario.senha_temporaria), motivo: 'convite' });
+      return { row: { ...usuario, senha_temporaria: emailEnviado ? null : usuario.senha_temporaria, email_enviado: emailEnviado } };
+    } catch (error) {
+      throw mapDbError(error);
+    }
   }
 
   if (action === 'tenant_admin_resetar_senha') {
@@ -979,11 +1022,11 @@ const CATALOGOS = ['marcas', 'categorias', 'cores', 'modelos'] as const;
 const TABELA_CATALOGO = { marcas: 'marcas_veiculo', categorias: 'categorias_veiculo', cores: 'cores_veiculo', modelos: 'modelos_veiculo' } as const;
 
 const MARCA_ACTIONS = new Set(['marca_obter', 'marca_salvar']);
-const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admins', 'tenant_admin_resetar_senha', 'admins_list', 'admin_adicionar', 'admin_remover', 'auditoria_list']);
+const PLATFORM_ACTIONS = new Set(['tenant_marca_salvar', 'catalogo_listar', 'catalogo_salvar', 'catalogo_excluir', 'tenants_list', 'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admins', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admins_list', 'admin_adicionar', 'admin_remover', 'auditoria_list']);
 
 // Acoes que alteram dados e por isso entram na trilha de auditoria (as de leitura ficam de fora).
 const AUDITED_ACTIONS = new Set([
-  'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admin_resetar_senha', 'admin_adicionar', 'admin_remover',
+  'tenant_criar', 'tenant_atualizar', 'tenant_excluir', 'tenant_admin_criar', 'tenant_admin_resetar_senha', 'admin_adicionar', 'admin_remover',
   'usuario_criar', 'usuario_atualizar', 'usuario_resetar_senha',
   'cadastro_salvar', 'cadastro_excluir', 'integracao_gmail_salvar', 'catalogo_salvar', 'catalogo_excluir',
   'tenant_marca_salvar', 'marca_salvar',

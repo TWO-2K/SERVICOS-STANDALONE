@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
 
 import { adminApi } from '@/shared/api/adminApi';
 import {
@@ -30,7 +30,7 @@ import {
 } from '@/shared/ui';
 
 import { useAdminMe } from '@/hooks/useAdminMe';
-import { EditarClienteDialog, ExcluirClienteDialog, RedefinirSenhaAdminDialog } from '@/pages/PlataformaClienteDialogs';
+import { EditarClienteDialog, ExcluirClienteDialog, NovoAdminDialog, RedefinirSenhaAdminDialog } from '@/pages/PlataformaClienteDialogs';
 import { AdministradoresTab, AuditoriaTab } from '@/pages/PlataformaAdmin';
 import { CatalogosTab } from '@/pages/PlataformaCatalogos';
 
@@ -57,6 +57,7 @@ function ClientesTab() {
   const [credenciais, setCredenciais] = useState(null);
   const [editando, setEditando] = useState(null);
   const [redefinindo, setRedefinindo] = useState(null);
+  const [novoAdmin, setNovoAdmin] = useState(null);
   const [excluindo, setExcluindo] = useState(null);
 
   const query = useQuery({ queryKey: tenantsKey, queryFn: () => adminApi.tenants.list() });
@@ -143,6 +144,9 @@ function ClientesTab() {
                     <Button variant="ghost" size="icon" aria-label="Editar cliente" onClick={() => setEditando(row)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
+                    <Button variant="ghost" size="icon" aria-label="Novo administrador" onClick={() => setNovoAdmin(row)}>
+                      <UserPlus className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -165,6 +169,7 @@ function ClientesTab() {
       )}
 
       <EditarClienteDialog cliente={editando} onClose={() => setEditando(null)} onSalvo={refresh} />
+      <NovoAdminDialog cliente={novoAdmin} onClose={() => setNovoAdmin(null)} onCriado={refresh} />
       <RedefinirSenhaAdminDialog cliente={redefinindo} onClose={() => setRedefinindo(null)} />
       <ExcluirClienteDialog cliente={excluindo} onClose={() => setExcluindo(null)} onExcluido={refresh} />
 

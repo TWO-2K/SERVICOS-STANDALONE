@@ -94,6 +94,79 @@ export function EditarClienteDialog({ cliente, onClose, onSalvo }) {
   );
 }
 
+export function NovoAdminDialog({ cliente, onClose, onCriado }) {
+  const { toast } = useToast();
+  const [nome, setNome] = useState('');
+  const [email, setEmail] = useState('');
+  const [resultado, setResultado] = useState(null);
+
+  useEffect(() => {
+    setNome('');
+    setEmail('');
+    setResultado(null);
+  }, [cliente]);
+
+  const criarMutation = useMutation({
+    mutationFn: () => adminApi.tenants.criarAdmin(cliente.id, { nome: nome.trim(), email: email.trim() }),
+    onSuccess: ({ row }) => {
+      setResultado({ email: row.email, senha: row.senha_temporaria, emailEnviado: row.email_enviado });
+      onCriado?.();
+    },
+    onError: (error) => toast({ title: 'Não foi possível criar o administrador', description: error.message }),
+  });
+
+  return (
+    <Dialog open={Boolean(cliente)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Novo administrador</DialogTitle>
+          <DialogDescription>
+            {resultado
+              ? resultado.emailEnviado
+                ? `Enviamos o acesso para ${resultado.email}. A senha precisa ser trocada no primeiro acesso.`
+                : 'Envie os dados abaixo ao administrador. A senha não será exibida novamente e precisa ser trocada no primeiro acesso.'
+              : `Cria um usuário administrador em ${cliente?.nome || ''}. Use um e-mail que ainda não tenha conta.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {resultado?.emailEnviado ? null : resultado ? (
+          <div className="space-y-1 rounded-md border bg-muted p-3 text-sm">
+            <div>
+              <span className="text-muted-foreground">E-mail:</span> {resultado.email}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Senha:</span>{' '}
+              <code className="select-all font-mono">{resultado.senha}</code>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="novo-admin-nome">Nome</Label>
+              <Input id="novo-admin-nome" value={nome} onChange={(e) => setNome(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="novo-admin-email">E-mail</Label>
+              <Input id="novo-admin-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          {resultado ? null : (
+            <Button disabled={criarMutation.isPending || !nome.trim() || !email.trim()} onClick={() => criarMutation.mutate()}>
+              {criarMutation.isPending ? 'Criando...' : 'Criar administrador'}
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose}>
+            Fechar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function RedefinirSenhaAdminDialog({ cliente, onClose }) {
   const { toast } = useToast();
   const [resultado, setResultado] = useState(null);

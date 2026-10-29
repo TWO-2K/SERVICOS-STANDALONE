@@ -8,6 +8,44 @@ Ordem sugerida: 1 → 2 → (3 e 4 se quiser notificações) → 5 → 6 → 7.
 
 ---
 
+## Estado atual (2026-10-28): o que falta para vender
+
+Backend de produção: projeto Supabase "SERVICOS STANDALONE" (ref `tjkliseptccocufxhlon`), ainda em teste, sem uso real.
+Os itens 3 e 6 abaixo já foram feitos no remoto (migrations, functions, secrets, cron). O texto deles é o plano original.
+
+**Feito e verificado no remoto**
+- [x] Isolamento entre clientes (RLS) e teste de isolamento; migration 1800 (logs só pelo servidor).
+- [x] 20 migrations aplicadas (até `20260101001900`), Edge Functions publicadas, secrets configurados.
+- [x] Criar cliente pelo painel da plataforma já com 10 categorias padrão e a unidade "Matriz" (`admin-api`, `tenant_criar`).
+- [x] Financeiro: criar solicitação. Oficina: veículo, checklist e PDF (data do PDF corrigida em `ChecklistDocumento.jsx`).
+- [x] Cron: fila de e-mail a cada minuto e lembrete de aprovação **1x ao dia, 9h de Brasília** (migration 1900).
+- [x] Web Push com par VAPID próprio (secrets no remoto, chave pública em `shared/push/constants.js`). Entrega testada no navegador.
+  O push só vale no build de produção (no `vite` de dev o PWA fica desligado) e não é enviado com o app aberto (janela de 35 s).
+- [x] Logo da identidade visual: envio testado pelo painel do cliente (PNG até 400 KB; PNG/JPG/WebP).
+- [x] "Proposta/venda" não vai existir (CRM removido). Os menus "Em breve" (Atendimento, Estoque, Compras, RH) ficam visíveis.
+
+**Falta — bloqueia a venda**
+- [ ] **Deploy na Vercel** (app dos clientes e painel da plataforma, `docs/VERCEL.md`). Variáveis: `VITE_SUPABASE_URL` + chave anon legada;
+  depois incluir as URLs da Vercel em `ALLOWED_ORIGINS` e atualizar `APP_URL`/`VITE_APP_URL`. Adiado pelo dono do projeto.
+- [ ] **Auth do Supabase hospedado:** `site_url`, redirects e SMTP próprio.
+- [ ] **Aprovação no Financeiro** não validada: o tenant de teste tem 1 usuário (solicitante = aprovador). Criar um 2º usuário e testar.
+- [ ] **Logo:** investigar o relato de que o envio não funciona (tela e mensagem de erro a confirmar).
+- [ ] Trocar a senha do super-admin antes de entregar (decisão do dono: por ora não troca).
+
+**Falta — para vender**
+- [ ] E-mail de boas-vindas ao criar cliente (recomendado, não bloqueia).
+- [ ] Cobrança/limites por plano (hoje só o cadastro de planos; cobrar manualmente no início).
+- [ ] Marca e domínio próprio (`VITE_APP_NAME`, `VITE_LOGO_URL`).
+- [ ] Termos de uso, política de privacidade (LGPD), contrato e material de venda.
+- [ ] Backups e monitoramento; plano Pro do Supabase para produção.
+
+**Menores / conhecidos**
+- [ ] Anexo `.txt` é rejeitado sem mensagem na tela.
+- [ ] Push em celular real e o disparo das 9h pelo cron ainda não foram testados (o disparo manual pelo mesmo caminho funcionou).
+- [ ] Copiar o novo par VAPID para `supabase/functions/.env.local` se for testar push localmente.
+
+---
+
 ## 1. Tela/API de gestão de usuários e de clientes — PARCIAL (feito em 2026-10-26)
 
 **Feito (Edge Function `admin-api`, migration `20260101000400_plataforma_admin.sql`):**
@@ -110,7 +148,7 @@ catálogo de veículos (marcas, modelos, versões, cores, categorias).
 
 ---
 
-## 3. Cron (automações em segundo plano)
+## 3. Cron (automações em segundo plano) — FEITO (migrations 1200 e 1900; lembrete agora diário, 9h de Brasília)
 
 **Situação:** os 13 agendamentos originais foram trocados por stubs (apontavam para a URL de produção e carregavam o
 `x-invoke-secret` antigo em texto puro). Sem eles, `servicos-lembrete-aprovacoes` (lembrete de aprovações a cada hora) e
@@ -127,7 +165,7 @@ catálogo de veículos (marcas, modelos, versões, cores, categorias).
 
 **Esforço:** baixo. **Depende de:** o ambiente ter URL fixa (item 6).
 
-## 4. E-mail, WhatsApp e Web Push (credenciais)
+## 4. E-mail, WhatsApp e Web Push (credenciais) — Web Push FEITO (2026-10-28, par VAPID próprio no remoto)
 
 **Situação:** o código existe em `_shared/` (`email.ts`, `whatsapp.ts`, `push.ts`) mas não há credenciais, e a function
 `processa-fila-email` não foi copiada.

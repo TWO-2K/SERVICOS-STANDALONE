@@ -138,6 +138,9 @@ export const adminApi = {
       const result = await invokeAdmin({ action: 'tenant_admins', tenant_id: tenantId });
       return result.rows || [];
     },
+    async criarAdmin(tenantId, dados) {
+      return invokeAdmin({ action: 'tenant_admin_criar', tenant_id: tenantId, ...dados });
+    },
     async resetarSenhaAdmin(tenantId, userId) {
       return invokeAdmin({ action: 'tenant_admin_resetar_senha', tenant_id: tenantId, user_id: userId });
     },
