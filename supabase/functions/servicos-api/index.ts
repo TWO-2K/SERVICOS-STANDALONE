@@ -1095,6 +1095,13 @@ async function handleRequest(request: Request): Promise<Response> {
     const action = String(body.action || 'list');
 
     if (action === 'me') {
+      // Conta de administrador da plataforma e do dono do sistema: entra so no painel da plataforma, nunca no app do cliente.
+      if (collaborator?.id && sqlPool) {
+        const plataforma = await sqlPool.unsafe(`select 1 from plataforma.administradores where user_id = $1 limit 1;`, [collaborator.id]);
+        if (plataforma[0]) {
+          return json({ error: 'Esta conta é do painel da plataforma e não acessa o sistema do cliente.', code: 'platform_account' }, 403);
+        }
+      }
       ensureHasAccess(access);
       const restringeReprovacaoAprovada = await getRestringeReprovacaoContasAPagar();
       const podeReprovarAprovada = restringeReprovacaoAprovada ? isFinanceiro(moduleRole) : isPagador(moduleRole);

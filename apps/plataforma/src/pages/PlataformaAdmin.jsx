@@ -106,6 +106,10 @@ export function AdministradoresTab() {
 
       {query.isLoading ? (
         <MoneyLoader inline />
+      ) : query.isError ? (
+        <p className="text-sm text-destructive">
+          Não foi possível carregar os administradores: {query.error?.message || 'erro desconhecido'}. Saia e entre de novo.
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
           <Table>

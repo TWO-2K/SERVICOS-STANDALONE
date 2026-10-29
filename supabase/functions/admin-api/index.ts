@@ -573,7 +573,8 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
   if (action === 'tenants_list') {
     const rows = await sqlPool!.unsafe(`
       select t.id, t.nome, t.slug, t.ativo, t.plano, t.criado_em, t.marca_nome, t.marca_cor, t.marca_logo_path,
-        (select count(*)::int from public.colaboradores c where c.tenant_id = t.id) as usuarios,
+        (select count(*)::int from public.colaboradores c where c.tenant_id = t.id
+          and c.id not in (select user_id from plataforma.administradores)) as usuarios,
         (select count(*)::int from gestao_servicos.solicitacoes_pagamento sp where sp.tenant_id = t.id) as solicitacoes
       from public.tenants t
       order by t.criado_em;
@@ -736,7 +737,8 @@ async function handlePlatformAction(action: string, body: Json, collaborator: Co
     const tenantId = uuidOuNull(body.tenant_id, 'Cliente');
     if (!tenantId) throw httpError('Cliente obrigatorio.');
     const rows = await sqlPool!.unsafe(
-      `select id, nome, email from public.colaboradores where tenant_id = $1 and funcao = 'admin' order by nome;`,
+      `select id, nome, email from public.colaboradores where tenant_id = $1 and funcao = 'admin'
+        and id not in (select user_id from plataforma.administradores) order by nome;`,
       [tenantId],
     );
     return { rows };
