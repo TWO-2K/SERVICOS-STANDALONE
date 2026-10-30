@@ -1,5 +1,5 @@
 // Chamada pelo frontend logo apos supabase.auth.signInWithPassword ter sucesso -- simetrica a
-// security-log-failed-login. Alimenta gestao_plataforma.logs_acesso (evento = 'login_sucesso'),
+// security-log-failed-login. Alimenta plataforma.logs_acesso (evento = 'login_sucesso'),
 // usada por security-check-login-lock para resetar o contador de falhas do fallback de lockout
 // client-side (item 3 do plano de forca bruta -- o Auth Hook nativo "Password Verification
 // Attempt" exige plano Team/Enterprise do Supabase, ainda nao disponivel neste projeto, ver
@@ -78,7 +78,7 @@ Deno.serve(async (request) => {
 
     await sql.unsafe(
       `
-        insert into gestao_plataforma.logs_acesso (colaborador_id, sistema_id, evento, ip_address, user_agent, metadados)
+        insert into plataforma.logs_acesso (colaborador_id, sistema_id, evento, ip_address, user_agent, metadados)
         select null, s.id, 'login_sucesso', $1::inet, $2::text, jsonb_build_object('email', $3::text)
         from public.sistemas s
         where s.slug = $4::text;

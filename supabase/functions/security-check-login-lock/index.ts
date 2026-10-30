@@ -3,7 +3,7 @@
 // dentro do proprio GoTrue e nao pode ser contornado) exige plano Team/Enterprise -- este projeto
 // esta no plano padrao, entao esse hook nao pode ser habilitado. Este fallback e chamado pelo
 // frontend ANTES de tentar supabase.auth.signInWithPassword: se a conta estiver "travada" pelo
-// historico de falhas recentes em gestao_plataforma.logs_acesso, o app nem tenta o login.
+// historico de falhas recentes em plataforma.logs_acesso, o app nem tenta o login.
 //
 // Limitacao conhecida (documentada em SECURITY_AUDIT.md): um atacante que ataque a API do
 // Supabase Auth diretamente, sem passar pelo app, nunca chama esta funcao -- entao esse caminho
@@ -57,12 +57,12 @@ Deno.serve(async (request) => {
       `
         with ultimo_sucesso as (
           select max(criado_em) as em
-          from gestao_plataforma.logs_acesso
+          from plataforma.logs_acesso
           where evento = 'login_sucesso' and lower(metadados->>'email') = $1::text
         ),
         falhas as (
           select criado_em
-          from gestao_plataforma.logs_acesso, ultimo_sucesso
+          from plataforma.logs_acesso, ultimo_sucesso
           where evento = 'login_falha'
             and lower(metadados->>'email') = $1::text
             and criado_em > greatest(coalesce(ultimo_sucesso.em, now() - interval '${JANELA_MINUTOS} minutes'), now() - interval '${JANELA_MINUTOS} minutes')

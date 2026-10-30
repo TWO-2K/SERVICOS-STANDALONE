@@ -3,7 +3,7 @@
 // falhou, nao ha sessao) -- supabase-js assina a chamada com a anon key, que passa no verify_jwt
 // padrao do projeto mesmo sem usuario autenticado (mesmo mecanismo usado por
 // processa-fila-email/servicos-lembrete-aprovacoes, chamados via pg_cron com a anon key).
-// Alimenta gestao_plataforma.logs_acesso (evento = 'login_falha'), consumido pelo cron
+// Alimenta plataforma.logs_acesso (evento = 'login_falha'), consumido pelo cron
 // security-alerta-picos-login para detectar picos de tentativas.
 import { buildCorsHeaders } from '../_shared/cors.ts';
 import { loginTelemetryBodySchema } from '../_shared/validation.ts';
@@ -62,7 +62,7 @@ Deno.serve(async (request) => {
 
     await sql.unsafe(
       `
-        insert into gestao_plataforma.logs_acesso (colaborador_id, sistema_id, evento, ip_address, user_agent, metadados)
+        insert into plataforma.logs_acesso (colaborador_id, sistema_id, evento, ip_address, user_agent, metadados)
         select null, s.id, 'login_falha', $1::inet, $2::text, jsonb_build_object('email', $3::text)
         from public.sistemas s
         where s.slug = $4::text;

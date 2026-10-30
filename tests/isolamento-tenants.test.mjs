@@ -405,8 +405,8 @@ describe('isolamento entre tenants', () => {
   test('logs de seguranca (sem tenant_id) nao sao legiveis por usuario de cliente', () => {
     const tabelas = ['logs_acesso', 'logs_auditoria', 'alertas_seguranca_enviados'];
     for (const tabela of tabelas) {
-      const privilegio = psql(`select has_table_privilege('authenticated', 'gestao_plataforma.${tabela}', 'select');`);
-      assert.match(privilegio, /\bf\b/, `authenticated nao deve ler gestao_plataforma.${tabela}`);
+      const privilegio = psql(`select has_table_privilege('authenticated', 'plataforma.${tabela}', 'select');`);
+      assert.match(privilegio, /\bf\b/, `authenticated nao deve ler plataforma.${tabela}`);
     }
   });
 

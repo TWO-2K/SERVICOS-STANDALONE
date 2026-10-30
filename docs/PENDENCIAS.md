@@ -197,7 +197,7 @@ as dependências do front estão em `apps/servicos/package.json`. Validado: `npm
 **Como fazer:**
 - Criar um projeto Supabase **novo** (nunca apontar para outro ambiente), `supabase link`, `supabase db push`, `supabase functions
   deploy` para as 7 functions, `supabase secrets set` (item 3 e 4) e o secret no Vault.
-- Configurar Auth: `site_url`, redirects, SMTP próprio, e o hook de lockout (`gestao_plataforma.hook_verificacao_senha`).
+- Configurar Auth: `site_url`, redirects, SMTP próprio, e o hook de lockout (`plataforma.hook_verificacao_senha`).
   Atenção: no monorepo o hook nativo exigia plano Team; por isso o front também chama `security-check-login-lock`.
 - Deploy do front (Vercel/Netlify/etc.) com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` do projeto novo.
 - Criar o primeiro admin (seed manual) e **trocar a senha do seed**. O `seed.sql` atual é só para local.

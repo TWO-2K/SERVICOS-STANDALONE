@@ -286,7 +286,7 @@ max_frequency = "5s"
 # (Authentication -> Hooks -> Password Verification Attempt).
 [auth.hook.password_verification_attempt]
 enabled = true
-uri = "pg-functions://postgres/gestao_plataforma/hook_verificacao_senha"
+uri = "pg-functions://postgres/plataforma/hook_verificacao_senha"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
