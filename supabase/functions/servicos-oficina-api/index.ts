@@ -1476,15 +1476,18 @@ Deno.serve(async (request) => {
   const corsHeaders = buildCorsHeaders(request);
   try {
     let tenantId: string | null = null;
-    if (getBearerToken(request)) {
+    // O visitante do link publico manda a anon key como Bearer (o gateway exige), entao a presenca de
+    // Bearer nao distingue colaborador logado: a action decide, e o token HMAC e a autorizacao.
+    const body = await request.clone().json().catch(() => ({}));
+    const acaoPublica = String(body.action || '') === 'checklist_publico_obter';
+    if (getBearerToken(request) && !acaoPublica) {
       const { collaborator } = await getServicosAuthContext(request, sql, supabaseUrl, supabaseAnonKey, MODULO);
       tenantId = tenantIdOf(collaborator);
       if (!tenantId) {
         return jsonResponse({ error: 'Usuario sem empresa (tenant) vinculada.' }, 403, corsHeaders);
       }
     } else {
-      const body = await request.clone().json().catch(() => ({}));
-      if (String(body.action || '') !== 'checklist_publico_obter') return await handleRequest(request);
+      if (!acaoPublica) return await handleRequest(request);
       const rows = await sqlPool.unsafe(
         `select tenant_id from ${SERVICOS_SCHEMA}.checklist_avaliacoes where id::text = $1 limit 1;`,
         [String(body.id || '')],
