@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { BrandLoader, Button } from '@/shared/ui';
-import { applyBrandColor } from '@/lib/brandColor';
 import { APP_NAME, LOGO_URL } from '@/lib/branding';
 import { TENANT_SLUG, rememberSlug } from '@/lib/tenant';
 import EscolherEmpresa from '@/pages/EscolherEmpresa';
@@ -20,23 +19,49 @@ async function fetchBrand(slug) {
   return response.json();
 }
 
+// Ultima marca vista por slug: permite renderizar de imediato e revalidar em segundo plano,
+// em vez de bloquear a tela inteira numa chamada de rede a cada carga.
+const BRAND_CACHE_KEY = `brand:${TENANT_SLUG}`;
+
+function readCachedBrand() {
+  try {
+    const raw = localStorage.getItem(BRAND_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedBrand(brand) {
+  try {
+    if (brand) localStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(brand));
+    else localStorage.removeItem(BRAND_CACHE_KEY);
+  } catch {
+    // storage indisponivel: segue sem cache
+  }
+}
+
 export function BrandProvider({ children }) {
-  const [brand, setBrand] = useState(null);
-  const [state, setState] = useState(TENANT_SLUG ? 'loading' : 'missing');
+  const [cached] = useState(() => (TENANT_SLUG ? readCachedBrand() : null));
+  const [brand, setBrand] = useState(cached);
+  const [state, setState] = useState(TENANT_SLUG ? (cached ? 'ready' : 'loading') : 'missing');
 
   const load = useCallback(async () => {
     if (!TENANT_SLUG) return;
     try {
       const result = await fetchBrand(TENANT_SLUG);
       if (!result) {
+        writeCachedBrand(null);
         setState('notfound');
         return;
       }
       rememberSlug(TENANT_SLUG);
+      writeCachedBrand(result);
       setBrand(result);
       setState('ready');
     } catch {
-      setState('error');
+      // Com marca em cache, uma falha de rede nao derruba a tela.
+      setState((current) => (current === 'ready' ? current : 'error'));
     }
   }, []);
 
@@ -44,10 +69,10 @@ export function BrandProvider({ children }) {
     load();
   }, [load]);
 
+  // A cor da marca nao e aplicada aqui: o login e generico, e BrandTheme (App.jsx) aplica so apos autenticar.
   useEffect(() => {
-    applyBrandColor(brand?.cor);
     document.title = APP_NAME;
-  }, [brand]);
+  }, []);
 
   const value = useMemo(
     () => ({

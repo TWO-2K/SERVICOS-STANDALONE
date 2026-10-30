@@ -34,7 +34,7 @@ import {
   Textarea,
   useToast,
 } from '@/shared/ui';
-import SolicitacaoDrawer from '@/components/SolicitacaoDrawer';
+import SolicitacaoDrawer from '@/components/SolicitacaoDrawerLazy';
 import SolicitacaoCard from '@/components/SolicitacaoCard';
 import FiltersDrawer from '@/components/FiltersDrawer';
 import Pagination from '@/components/Pagination';

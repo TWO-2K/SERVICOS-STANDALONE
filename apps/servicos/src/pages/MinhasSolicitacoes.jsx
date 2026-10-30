@@ -47,7 +47,7 @@ import {
   toLocalDateOnly,
   truncarTitulo,
 } from '@/lib/financeiroFormat';
-import SolicitacaoDrawer from '@/components/SolicitacaoDrawer';
+import SolicitacaoDrawer from '@/components/SolicitacaoDrawerLazy';
 import SolicitacaoCard from '@/components/SolicitacaoCard';
 import NovaSolicitacaoDrawer from '@/components/NovaSolicitacaoDrawer';
 import ConfirmDeleteDialog from '@/components/ConfirmDeleteDialog';

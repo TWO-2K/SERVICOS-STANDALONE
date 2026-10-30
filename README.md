@@ -1,20 +1,17 @@
 # K-Pit — plataforma multiempresa (Financeiro + Oficina)
 
-Aplicacao independente (Financeiro + Oficina), multiempresa. Roda 100% local (front + Supabase em Docker).
+Aplicacao independente (Financeiro + Oficina), multiempresa. Usa apenas o Supabase hospedado; nao ha ambiente local.
 
-## Rodar local
-Pre-requisitos: Node 20+ e Docker Desktop aberto.
+## Rodar
+Pre-requisito: Node 20+. Crie o `.env.local` a partir do `.env.example` com a URL e a anon key do projeto hospedado.
 
 ```bash
 npm install
-npx supabase start                      # banco, auth, storage (portas 55xxx); aplica migrations + seed
-npm run functions:serve                 # Edge Functions (deixar rodando num terminal)
 npm run dev                             # app dos clientes em http://localhost:5177/<slug-do-cliente> (ex.: /padrao)
 npm run dev:plataforma                  # painel da plataforma em http://localhost:5178 (so admin da plataforma, com MFA)
 ```
-Login de teste: `admin@servicos.local` / `Servicos@123` (acesso admin ao Servicos).
-Studio (banco): http://127.0.0.1:55323 · e-mails de teste: http://127.0.0.1:55324
-Recriar o banco do zero: `npx supabase db reset`. Parar: `npx supabase stop`.
+Atencao: o dev grava no banco real. Para testes use o tenant fixo `padrao`.
+O CORS das functions so aceita `localhost` nas portas de dev conhecidas (5177, 4177 etc.).
 
 ## Estrutura
 - `apps/plataforma` — painel do dono do sistema (clientes, catálogos, administradores, auditoria): app próprio, pensado para subdomínio próprio. Login com senha + MFA (TOTP); reaproveita `apps/servicos/src/shared`.

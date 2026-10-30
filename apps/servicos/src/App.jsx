@@ -1,32 +1,37 @@
+import { lazy, Suspense, useEffect } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrandLoader, PasswordChangeForm, Toaster } from '@/shared/ui';
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { queryClientInstance } from '@/lib/query-client';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
-import { BrandProvider } from '@/lib/BrandContext';
+import { BrandProvider, useBrand } from '@/lib/BrandContext';
+import { applyBrandColor } from '@/lib/brandColor';
 import { TENANT_SLUG } from '@/lib/tenant';
 import { PushProvider } from '@/lib/PushContext';
 import AppLayout from '@/components/layout/AppLayout';
 import AppUpdatePrompt from '@/components/AppUpdatePrompt';
 import Login from '@/pages/Login';
 import MinhasSolicitacoes from '@/pages/MinhasSolicitacoes';
-import Aprovacoes from '@/pages/Aprovacoes';
-import Pagamentos from '@/pages/Pagamentos';
-import CalendarioVencimentos from '@/pages/CalendarioVencimentos';
-import Fornecedores from '@/pages/Fornecedores';
-import Categorias from '@/pages/Categorias';
-import Relatorios from '@/pages/Relatorios';
-import Configuracoes from '@/pages/Configuracoes';
 import ModuloEmBreve from '@/pages/ModuloEmBreve';
 import AcessoRestrito from '@/pages/AcessoRestrito';
-import ChecklistList from '@/pages/oficina/ChecklistList';
-import ChecklistHistorico from '@/pages/oficina/ChecklistHistorico';
-import ChecklistForm from '@/pages/oficina/ChecklistForm';
-import ChecklistDetail from '@/pages/oficina/ChecklistDetail';
-import ChecklistPublico from '@/pages/oficina/ChecklistPublico';
-import VeiculosHistorico from '@/pages/oficina/VeiculosHistorico';
-import ClientesLista from '@/pages/oficina/ClientesLista';
+
+// Paginas fora do caminho de entrada (Login/MinhasSolicitacoes) carregam sob demanda, pra nao
+// pesar o bundle inicial com recharts, pdf-lib, mapa de avarias etc.
+const Aprovacoes = lazy(() => import('@/pages/Aprovacoes'));
+const Pagamentos = lazy(() => import('@/pages/Pagamentos'));
+const CalendarioVencimentos = lazy(() => import('@/pages/CalendarioVencimentos'));
+const Fornecedores = lazy(() => import('@/pages/Fornecedores'));
+const Categorias = lazy(() => import('@/pages/Categorias'));
+const Relatorios = lazy(() => import('@/pages/Relatorios'));
+const Configuracoes = lazy(() => import('@/pages/Configuracoes'));
+const ChecklistList = lazy(() => import('@/pages/oficina/ChecklistList'));
+const ChecklistHistorico = lazy(() => import('@/pages/oficina/ChecklistHistorico'));
+const ChecklistForm = lazy(() => import('@/pages/oficina/ChecklistForm'));
+const ChecklistDetail = lazy(() => import('@/pages/oficina/ChecklistDetail'));
+const ChecklistPublico = lazy(() => import('@/pages/oficina/ChecklistPublico'));
+const VeiculosHistorico = lazy(() => import('@/pages/oficina/VeiculosHistorico'));
+const ClientesLista = lazy(() => import('@/pages/oficina/ClientesLista'));
 
 const getFromPath = (search) => {
   const params = new URLSearchParams(search);
@@ -42,6 +47,18 @@ const getFromPath = (search) => {
 };
 
 const LoadingScreen = () => <BrandLoader />;
+
+// Tema da empresa vale so dentro do acesso; na tela de login volta ao padrao do produto.
+const BrandTheme = () => {
+  const { isAuthenticated } = useAuth();
+  const { cor } = useBrand();
+
+  useEffect(() => {
+    applyBrandColor(isAuthenticated ? cor : null);
+  }, [isAuthenticated, cor]);
+
+  return null;
+};
 
 const LoginRoute = () => {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -159,11 +176,19 @@ function App() {
     <QueryClientProvider client={queryClientInstance}>
       <BrandProvider>
       <AuthProvider>
+        <BrandTheme />
         <Router basename={`/${TENANT_SLUG}`} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             <Route path="/entrar" element={<LoginRoute />} />
             <Route path="/login" element={<Navigate replace to="/entrar" />} />
-            <Route path="/checklist-publico/:id" element={<ChecklistPublico />} />
+            <Route
+              path="/checklist-publico/:id"
+              element={
+                <Suspense fallback={<LoadingScreen />}>
+                  <ChecklistPublico />
+                </Suspense>
+              }
+            />
             <Route path="*" element={<ServicosRoutes />} />
           </Routes>
         </Router>

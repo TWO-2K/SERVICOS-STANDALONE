@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppUpdateNoticeDialog, applyTheme, getInitialTheme } from '@/shared/ui';
@@ -104,7 +104,9 @@ export default function AppLayout() {
         <Header onOpenMobileMenu={() => setMobileOpen(true)} />
 
         <main className="min-w-0 flex-1 px-4 py-6 pb-safe-bottom-nav md:px-6 lg:px-8 lg:pb-8">
-          <Outlet />
+          <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando...</div>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

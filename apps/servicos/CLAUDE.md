@@ -29,11 +29,11 @@
   lista arquivos de colaboradores do próprio tenant.
 - **Marca neutra:** nome, subtítulo e logo vêm de `VITE_APP_NAME`, `VITE_APP_TAGLINE` e `VITE_LOGO_URL` (`src/lib/branding.js`).
   Escopo dos pacotes é `@app/*`. CORS de produção por `ALLOWED_ORIGINS` (functions). O cabeçalho do documento do checklist usa o
-  nome da unidade. Projeto Supabase local: `servicos` (containers `supabase_db_servicos` etc.).
-- **Ambiente local:** `npm run db:start`, `npm run functions:serve` (precisa de `supabase/functions/.env.local`), `npm run dev`
-  (porta 5177). `npm run db:reset` recria tudo; admin da plataforma: `admin@servicos.local` / `Servicos@123`.
-- **Testes:** `npm test` roda `tests/isolamento-tenants.test.mjs` (cria 2 clientes e verifica o isolamento). Ao criar
-  tabela ou rota nova, inclua `tenant_id`, a policy e um caso nesse teste.
+  nome da unidade.
+- **Ambiente:** o sistema usa **somente o Supabase hospedado**; nao ha banco nem functions locais (decisao de 2026-10-30).
+  `npm run dev` (porta 5177) le o `.env.local`, que aponta para o remoto. Teste no tenant fixo `padrao`.
+- **Testes de isolamento:** `tests/isolamento-tenants.test.mjs` foi escrito para uma stack local e cria 2 clientes; o script
+  `npm test` e o CI foram removidos. Nao rode contra o banco real sem revisar.
 
 
 ## Domínio

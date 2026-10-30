@@ -12,13 +12,7 @@
     "dev:plataforma": "vite --config apps/plataforma/vite.config.js --configLoader runner --mode production",
     "build": "vite build --config apps/servicos/vite.config.js --configLoader runner && vite build --config apps/plataforma/vite.config.js --configLoader runner",
     "preview": "vite preview --config apps/servicos/vite.config.js --configLoader runner",
-    "preview:plataforma": "vite preview --config apps/plataforma/vite.config.js --configLoader runner",
-    "db:start": "supabase start",
-    "db:stop": "supabase stop",
-    "db:reset": "supabase db reset",
-    "db:status": "supabase status",
-    "functions:serve": "supabase functions serve --env-file supabase/functions/.env.local --no-verify-jwt",
-    "test": "node --test --test-concurrency=1 \"tests/**/*.test.mjs\""
+    "preview:plataforma": "vite preview --config apps/plataforma/vite.config.js --configLoader runner"
   },
   "dependencies": {},
   "devDependencies": {
