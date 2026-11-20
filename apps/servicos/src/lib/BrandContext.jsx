@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { BrandLoader, Button } from '@/shared/ui';
-import { APP_NAME, LOGO_URL } from '@/lib/branding';
+import { APP_NAME, LOGIN_BACKGROUND_URL, LOGO_URL } from '@/lib/branding';
 import { TENANT_SLUG, rememberSlug } from '@/lib/tenant';
 import EscolherEmpresa from '@/pages/EscolherEmpresa';
 
@@ -70,9 +70,21 @@ export function BrandProvider({ children }) {
   }, [load]);
 
   // A cor da marca nao e aplicada aqui: o login e generico, e BrandTheme (App.jsx) aplica so apos autenticar.
+  // Titulo e favicon da guia refletem o cliente (nome + logo); sem marca carregada, cai no padrao do produto.
   useEffect(() => {
-    document.title = APP_NAME;
-  }, []);
+    document.title = brand?.nome ? `${APP_NAME} · ${brand.nome}` : APP_NAME;
+
+    let link = document.querySelector("link[rel='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    // Sem isso, o navegador mantem o type="image/svg+xml" do favicon padrao e ignora o logo
+    // enviado pelo cliente (que e png/jpeg/webp, nunca svg).
+    link.removeAttribute('type');
+    link.href = brand?.logo_url || LOGO_URL;
+  }, [brand]);
 
   const value = useMemo(
     () => ({
@@ -80,6 +92,7 @@ export function BrandProvider({ children }) {
       nome: brand?.nome || APP_NAME,
       produto: APP_NAME,
       logoUrl: brand?.logo_url || LOGO_URL,
+      fundoUrl: brand?.fundo_url || LOGIN_BACKGROUND_URL,
       cor: brand?.cor || null,
       reload: load,
     }),

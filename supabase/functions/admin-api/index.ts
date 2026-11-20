@@ -223,6 +223,7 @@ async function entregarAcessoPorEmail(
 // ---------- Marca (nome, cor e logo do cliente) ----------
 
 const LOGO_MAX_BYTES = 400 * 1024;
+const FUNDO_MAX_BYTES = 2 * 1024 * 1024;
 const LOGO_TIPOS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const COR_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -234,7 +235,7 @@ function logoPublicUrl(path: string | null) {
 
 async function obterMarca(tenantId: string) {
   const rows = await sqlPool!.unsafe(
-    `select slug, nome, marca_nome, marca_cor, marca_logo_path from public.tenants where id = $1;`,
+    `select slug, nome, marca_nome, marca_cor, marca_logo_path, marca_fundo_path from public.tenants where id = $1;`,
     [tenantId],
   );
   const r = rows[0];
@@ -245,17 +246,32 @@ async function obterMarca(tenantId: string) {
     nome: r.marca_nome ?? null,
     cor: r.marca_cor ?? null,
     logo_url: logoPublicUrl(r.marca_logo_path as string | null),
+    fundo_url: logoPublicUrl(r.marca_fundo_path as string | null),
   };
 }
 
-// Campos ausentes ficam como estao; "" limpa nome/cor; "remover_logo" tira o logo; "logo_data_url" troca o logo.
+// Le um data: URL de imagem e valida tipo/tamanho. Lanca httpError se invalido.
+function lerImagemDataUrl(dataUrl: string, maxBytes: number, mensagemTipo: string, mensagemTamanho: string) {
+  const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+\/=]+)$/.exec(dataUrl);
+  if (!m) throw httpError(mensagemTipo);
+  const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  if (bytes.length > maxBytes) throw httpError(mensagemTamanho);
+  return { bytes, type: m[1] };
+}
+
+// Campos ausentes ficam como estao; "" limpa nome/cor; "remover_logo"/"remover_fundo" tiram a imagem;
+// "logo_data_url"/"fundo_data_url" trocam a imagem.
 async function salvarMarca(tenantId: string, body: Json) {
-  const atual = await sqlPool!.unsafe(`select marca_nome, marca_cor, marca_logo_path from public.tenants where id = $1;`, [tenantId]);
+  const atual = await sqlPool!.unsafe(
+    `select marca_nome, marca_cor, marca_logo_path, marca_fundo_path from public.tenants where id = $1;`,
+    [tenantId],
+  );
   if (!atual[0]) throw httpError('Cliente nao encontrado.', 404);
 
   let nome = atual[0].marca_nome as string | null;
   let cor = atual[0].marca_cor as string | null;
   let logoPath = atual[0].marca_logo_path as string | null;
+  let fundoPath = atual[0].marca_fundo_path as string | null;
 
   if (body.marca_nome !== undefined) {
     const v = texto(body.marca_nome, 60);
@@ -267,29 +283,41 @@ async function salvarMarca(tenantId: string, body: Json) {
     cor = v ? v.toLowerCase() : null;
   }
 
-  const antigo = logoPath;
-  let novoArquivo: { path: string; bytes: Uint8Array; type: string } | null = null;
+  const antigoLogo = logoPath;
+  let novoLogo: { path: string; bytes: Uint8Array; type: string } | null = null;
   if (typeof body.logo_data_url === 'string' && body.logo_data_url) {
-    const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+\/=]+)$/.exec(body.logo_data_url);
-    if (!m) throw httpError('Logo invalido: envie PNG, JPG ou WebP.');
-    const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
-    if (bytes.length > LOGO_MAX_BYTES) throw httpError('Logo grande demais (maximo 400 KB).');
-    novoArquivo = { path: `${tenantId}/logo-${Date.now()}.${LOGO_TIPOS[m[1]]}`, bytes, type: m[1] };
-    logoPath = novoArquivo.path;
+    const { bytes, type } = lerImagemDataUrl(body.logo_data_url, LOGO_MAX_BYTES, 'Logo invalido: envie PNG, JPG ou WebP.', 'Logo grande demais (maximo 400 KB).');
+    novoLogo = { path: `${tenantId}/logo-${Date.now()}.${LOGO_TIPOS[type]}`, bytes, type };
+    logoPath = novoLogo.path;
   } else if (body.remover_logo === true) {
     logoPath = null;
   }
 
+  const antigoFundo = fundoPath;
+  let novoFundo: { path: string; bytes: Uint8Array; type: string } | null = null;
+  if (typeof body.fundo_data_url === 'string' && body.fundo_data_url) {
+    const { bytes, type } = lerImagemDataUrl(body.fundo_data_url, FUNDO_MAX_BYTES, 'Imagem de fundo invalida: envie PNG, JPG ou WebP.', 'Imagem de fundo grande demais (maximo 2 MB).');
+    novoFundo = { path: `${tenantId}/fundo-${Date.now()}.${LOGO_TIPOS[type]}`, bytes, type };
+    fundoPath = novoFundo.path;
+  } else if (body.remover_fundo === true) {
+    fundoPath = null;
+  }
+
   const storage = authAdminClient().storage.from('marcas');
-  if (novoArquivo) {
-    const { error } = await storage.upload(novoArquivo.path, novoArquivo.bytes, { contentType: novoArquivo.type, upsert: true });
+  if (novoLogo) {
+    const { error } = await storage.upload(novoLogo.path, novoLogo.bytes, { contentType: novoLogo.type, upsert: true });
     if (error) throw httpError('Nao foi possivel salvar o logo.', 500);
   }
+  if (novoFundo) {
+    const { error } = await storage.upload(novoFundo.path, novoFundo.bytes, { contentType: novoFundo.type, upsert: true });
+    if (error) throw httpError('Nao foi possivel salvar a imagem de fundo.', 500);
+  }
   await sqlPool!.unsafe(
-    `update public.tenants set marca_nome = $2, marca_cor = $3, marca_logo_path = $4 where id = $1;`,
-    [tenantId, nome, cor, logoPath],
+    `update public.tenants set marca_nome = $2, marca_cor = $3, marca_logo_path = $4, marca_fundo_path = $5 where id = $1;`,
+    [tenantId, nome, cor, logoPath, fundoPath],
   );
-  if (antigo && antigo !== logoPath) await storage.remove([antigo]).catch(() => undefined);
+  if (antigoLogo && antigoLogo !== logoPath) await storage.remove([antigoLogo]).catch(() => undefined);
+  if (antigoFundo && antigoFundo !== fundoPath) await storage.remove([antigoFundo]).catch(() => undefined);
   return obterMarca(tenantId);
 }
 
@@ -572,14 +600,20 @@ async function handleTenantAction(action: string, body: Json, collaborator: Coll
 async function handlePlatformAction(action: string, body: Json, collaborator: Collaborator) {
   if (action === 'tenants_list') {
     const rows = await sqlPool!.unsafe(`
-      select t.id, t.nome, t.slug, t.ativo, t.plano, t.criado_em, t.marca_nome, t.marca_cor, t.marca_logo_path,
+      select t.id, t.nome, t.slug, t.ativo, t.plano, t.criado_em, t.marca_nome, t.marca_cor, t.marca_logo_path, t.marca_fundo_path,
         (select count(*)::int from public.colaboradores c where c.tenant_id = t.id
           and c.id not in (select user_id from plataforma.administradores)) as usuarios,
         (select count(*)::int from public.solicitacoes_pagamento sp where sp.tenant_id = t.id) as solicitacoes
       from public.tenants t
       order by t.criado_em;
     `);
-    return { rows: rows.map((r) => ({ ...r, marca_logo_url: logoPublicUrl(r.marca_logo_path as string | null) })) };
+    return {
+      rows: rows.map((r) => ({
+        ...r,
+        marca_logo_url: logoPublicUrl(r.marca_logo_path as string | null),
+        marca_fundo_url: logoPublicUrl(r.marca_fundo_path as string | null),
+      })),
+    };
   }
 
   if (action === 'tenant_marca_salvar') {
@@ -1055,7 +1089,7 @@ const AUDITED_ACTIONS = new Set([
   'tenant_marca_salvar', 'marca_salvar',
 ]);
 // Somente estes campos do corpo vao para o log: nunca senhas, segredos ou tokens.
-const AUDIT_FIELDS = ['nome', 'slug', 'confirmar_slug', 'email', 'admin_email', 'admin_nome', 'ativo', 'plano', 'nivel_acesso', 'status', 'tipo', 'marca_id', 'categoria_veiculo_id', 'sender', 'client_id', 'marca_nome', 'marca_cor', 'remover_logo', 'id', 'user_id', 'tenant_id'];
+const AUDIT_FIELDS = ['nome', 'slug', 'confirmar_slug', 'email', 'admin_email', 'admin_nome', 'ativo', 'plano', 'nivel_acesso', 'status', 'tipo', 'marca_id', 'categoria_veiculo_id', 'sender', 'client_id', 'marca_nome', 'marca_cor', 'remover_logo', 'remover_fundo', 'id', 'user_id', 'tenant_id'];
 
 async function registrarAuditoria(user: { id: string; email?: string }, tenantId: string | null, action: string, body: Json, result: Json) {
   try {

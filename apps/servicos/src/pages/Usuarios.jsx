@@ -161,11 +161,22 @@ export default function Usuarios() {
 
   const atualizarMutation = useMutation({
     mutationFn: ({ id, dados }) => adminApi.usuarios.atualizar(id, dados),
+    onMutate: ({ id, dados }) => {
+      const previous = queryClient.getQueryData(usuariosKey);
+      queryClient.setQueryData(usuariosKey, (old) => ({
+        ...old,
+        rows: (old?.rows || []).map((row) => (row.id === id ? { ...row, ...dados } : row)),
+      }));
+      return { previous };
+    },
     onSuccess: () => {
       toast({ title: 'Usuário atualizado' });
       refresh();
     },
-    onError: (error) => toast({ title: 'Não foi possível atualizar o usuário', description: error.message }),
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(usuariosKey, context.previous);
+      toast({ title: 'Não foi possível atualizar o usuário', description: error.message });
+    },
   });
 
   const editarMutation = useMutation({

@@ -27,13 +27,19 @@ Deno.serve(async (request) => {
     if (!SLUG_RE.test(slug)) return json({ error: 'Empresa nao encontrada.' }, 404);
 
     const rows = await sql.unsafe(
-      `select slug, coalesce(marca_nome, nome) as nome, marca_cor as cor, marca_logo_path
+      `select slug, coalesce(marca_nome, nome) as nome, marca_cor as cor, marca_logo_path, marca_fundo_path
        from public.tenants where slug = $1 and ativo limit 1;`,
       [slug],
     );
     const row = rows[0];
     if (!row) return json({ error: 'Empresa nao encontrada.' }, 404);
-    return json({ slug: row.slug, nome: row.nome, cor: row.cor, logo_url: logoUrl(row.marca_logo_path as string | null) });
+    return json({
+      slug: row.slug,
+      nome: row.nome,
+      cor: row.cor,
+      logo_url: logoUrl(row.marca_logo_path as string | null),
+      fundo_url: logoUrl(row.marca_fundo_path as string | null),
+    });
   } catch (error) {
     console.error('marca-publica:', error);
     return json({ error: 'Falha ao consultar a empresa.' }, 500);

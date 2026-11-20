@@ -14,7 +14,7 @@ import {
   DialogTitle,
   Input,
   Label,
-  MoneyLoader,
+  Spinner,
   Switch,
   Table,
   TableBody,
@@ -104,7 +104,9 @@ function ClientesTab() {
       </div>
 
       {query.isLoading ? (
-        <MoneyLoader inline />
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
           <Table>

@@ -123,13 +123,21 @@ function CadastroTab({ config, dados }) {
 
   const excluirMutation = useMutation({
     mutationFn: (id) => adminApi.cadastros.excluir(config.tipo, id),
+    onMutate: (id) => {
+      const previous = queryClient.getQueryData(cadastrosKey);
+      queryClient.setQueryData(cadastrosKey, (old) => ({
+        ...old,
+        [config.tipo]: (old?.[config.tipo] || []).filter((item) => item.id !== id),
+      }));
+      setExcluindo(null);
+      return { previous };
+    },
     onSuccess: () => {
       toast({ title: 'Registro excluído' });
-      setExcluindo(null);
       refresh();
     },
-    onError: (error) => {
-      setExcluindo(null);
+    onError: (error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(cadastrosKey, context.previous);
       toast({ title: 'Não foi possível excluir', description: error.message });
     },
   });

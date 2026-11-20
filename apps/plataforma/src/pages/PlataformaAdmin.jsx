@@ -13,7 +13,7 @@ import {
   DialogTitle,
   Input,
   Label,
-  MoneyLoader,
+  Spinner,
   Table,
   TableBody,
   TableCell,
@@ -161,7 +161,9 @@ export function AdministradoresTab() {
       </Dialog>
 
       {query.isLoading ? (
-        <MoneyLoader inline />
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
       ) : query.isError ? (
         <p className="text-sm text-destructive">
           Não foi possível carregar os administradores: {query.error?.message || 'erro desconhecido'}. Saia e entre de novo.
@@ -240,7 +242,9 @@ export function AuditoriaTab() {
       </div>
 
       {query.isLoading ? (
-        <MoneyLoader inline />
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhuma ação registrada ainda.</p>
       ) : (

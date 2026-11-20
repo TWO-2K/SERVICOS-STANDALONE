@@ -19,7 +19,7 @@ export default function IdentidadeVisual() {
       <div>
         <h2 className="text-lg font-semibold">Identidade visual</h2>
         <p className="text-sm text-muted-foreground">
-          Personalize o nome, a cor e o logo que seus usuários veem. Endereço de acesso:{' '}
+          Personalize o nome, a cor, o logo e o fundo da tela de login que seus usuários veem. Endereço de acesso:{' '}
           <span className="select-all font-mono">{appUrl('/')}</span>
         </p>
       </div>

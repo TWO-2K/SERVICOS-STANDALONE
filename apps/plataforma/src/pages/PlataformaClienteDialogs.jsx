@@ -13,7 +13,7 @@ import {
   DialogTitle,
   Input,
   Label,
-  MoneyLoader,
+  Spinner,
   useToast,
 } from '@/shared/ui';
 
@@ -79,6 +79,7 @@ export function EditarClienteDialog({ cliente, onClose, onSalvo }) {
                 nome: cliente.marca_nome,
                 cor: cliente.marca_cor,
                 logo_url: cliente.marca_logo_url,
+                fundo_url: cliente.marca_fundo_url,
                 nome_cliente: cliente.nome,
               }}
               onSave={async (payload) => {
@@ -213,7 +214,9 @@ export function RedefinirSenhaAdminDialog({ cliente, onClose }) {
             </div>
           </div>
         ) : adminsQuery.isLoading ? (
-          <MoneyLoader inline />
+          <div className="flex items-center justify-center py-6">
+            <Spinner />
+          </div>
         ) : (adminsQuery.data || []).length === 0 ? (
           <p className="text-sm text-muted-foreground">Este cliente não tem administradores.</p>
         ) : (

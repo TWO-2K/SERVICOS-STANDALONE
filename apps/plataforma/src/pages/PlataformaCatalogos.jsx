@@ -14,7 +14,7 @@ import {
   DialogTitle,
   Input,
   Label,
-  MoneyLoader,
+  Spinner,
   Select,
   SelectContent,
   SelectItem,
@@ -307,7 +307,9 @@ export function CatalogosTab() {
         </p>
       </div>
       {query.isLoading || !query.data ? (
-        <MoneyLoader inline />
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
       ) : (
         <Tabs defaultValue="marcas">
           <TabsList>

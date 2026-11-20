@@ -44,12 +44,31 @@ export default function NotificationsBell({ buttonClassName = '' }) {
 
   const marcarLidaMutation = useMutation({
     mutationFn: (id) => financeiroApi.notificacoes.marcarLida(id),
+    onMutate: (id) => {
+      const previous = queryClient.getQueryData(notificacoesKey);
+      queryClient.setQueryData(notificacoesKey, (old) =>
+        (old || []).map((item) => (item.id === id ? { ...item, lida_em: new Date().toISOString() } : item)),
+      );
+      return { previous };
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: notificacoesKey }),
+    onError: (_error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(notificacoesKey, context.previous);
+    },
   });
 
   const marcarTodasLidasMutation = useMutation({
     mutationFn: () => financeiroApi.notificacoes.marcarTodasLidas(),
+    onMutate: () => {
+      const previous = queryClient.getQueryData(notificacoesKey);
+      const agora = new Date().toISOString();
+      queryClient.setQueryData(notificacoesKey, (old) => (old || []).map((item) => ({ ...item, lida_em: item.lida_em || agora })));
+      return { previous };
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: notificacoesKey }),
+    onError: (_error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(notificacoesKey, context.previous);
+    },
   });
 
   useEffect(() => {

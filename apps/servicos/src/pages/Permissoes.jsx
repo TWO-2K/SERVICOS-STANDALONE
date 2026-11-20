@@ -76,11 +76,28 @@ export default function Permissoes() {
 
   const alterarMutation = useMutation({
     mutationFn: ({ colaboradorId, modulo, papel }) => financeiroApi.permissoes.set(colaboradorId, modulo, papel),
+    onMutate: ({ colaboradorId, modulo, papel }) => {
+      const previous = queryClient.getQueryData(['servicos', 'permissoes']);
+      queryClient.setQueryData(['servicos', 'permissoes'], (old) => {
+        const permissoes = old?.permissoes || [];
+        const existe = permissoes.some((item) => item.colaborador_id === colaboradorId && item.modulo === modulo);
+        const atualizadas = existe
+          ? permissoes.map((item) =>
+              item.colaborador_id === colaboradorId && item.modulo === modulo ? { ...item, papel } : item,
+            )
+          : [...permissoes, { colaborador_id: colaboradorId, modulo, papel }];
+        return { ...old, permissoes: atualizadas };
+      });
+      return { previous };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'permissoes'] });
       toast({ title: 'Permissão atualizada' });
     },
-    onError: (error) => toast({ title: 'Não foi possível atualizar a permissão', description: error.message }),
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(['servicos', 'permissoes'], context.previous);
+      toast({ title: 'Não foi possível atualizar a permissão', description: error.message });
+    },
   });
 
   function handleChange(colaboradorId, modulo, papel) {
