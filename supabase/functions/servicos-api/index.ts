@@ -570,18 +570,25 @@ async function getAuthContext(request: Request): Promise<AuthContext> {
 
   const user = await getAuthenticatedUser(token);
   const collaborator = await getCurrentCollaborator(user);
+  // Checagem de tenant ativo e access+moduleRole (1 query so, ver getServicosAccessAndModuleRole)
+  // so dependem do collaborator ja resolvido, nao uma da outra -- paralelizadas pra nao
+  // serializar 2 round-trips no boot do login.
+  const [tenantRows, accessAndRole] = await Promise.all([
+    collaborator?.tenant_id && sql
+      ? sql.unsafe('select ativo from public.tenants where id = $1 limit 1;', [collaborator.tenant_id])
+      : Promise.resolve(null),
+    collaborator?.id
+      ? getServicosAccessAndModuleRole(String(collaborator.id))
+      : Promise.resolve({ access: null, moduleRole: null }),
+  ]);
   // Cliente desativado pela plataforma: avisa em vez de deixar o usuario entrar num sistema que parece vazio.
-  if (collaborator?.tenant_id && sql) {
-    const tenant = await sql.unsafe('select ativo from public.tenants where id = $1 limit 1;', [collaborator.tenant_id]);
-    if (tenant[0] && tenant[0].ativo === false) {
-      throw Object.assign(
-        new Error('O acesso da sua empresa esta desativado. Fale com o administrador da plataforma.'),
-        { status: 403 },
-      );
-    }
+  if (tenantRows?.[0] && tenantRows[0].ativo === false) {
+    throw Object.assign(
+      new Error('O acesso da sua empresa esta desativado. Fale com o administrador da plataforma.'),
+      { status: 403 },
+    );
   }
-  const access = collaborator?.id ? await getServicosAccess(String(collaborator.id)) : null;
-  const moduleRole = collaborator?.id ? await getServicosModuleRole(String(collaborator.id), access) : null;
+  const { access, moduleRole } = accessAndRole;
 
   const context: AuthContext = { user, collaborator, access, moduleRole };
   authContextCache.set(token, { expiresAt: Date.now() + AUTH_CONTEXT_TTL_MS, context });
@@ -606,41 +613,47 @@ async function getCurrentCollaborator(user: { id: string; email?: string }) {
   return rows[0] || null;
 }
 
-async function getServicosAccess(collaboradorId: string) {
-  if (!sql) return null;
+// Combina o que antes eram getServicosAccess + getServicosModuleRole (2 queries sequenciais,
+// a segunda dependendo do resultado da primeira) numa query so, com left join em
+// permissoes_modulo -- mesma ideia de _shared/servicos-auth.ts#getServicosAccessAndModuleRole,
+// mas com o bypass de admin retornando o literal 'financeiro' (nao 'admin' generico), que e' o
+// que isFinanceiro/isPagador neste arquivo esperam. Unificar com a versao de servicos-auth.ts
+// e' o follow-up maior ja registrado em CLAUDE.md (dívida de auth duplicada), fora de escopo aqui.
+async function getServicosAccessAndModuleRole(collaboradorId: string, modulo: string = 'financeiro') {
+  if (!sql) return { access: null, moduleRole: null };
 
   const rows = await sql.unsafe(
     `
-      select aus.*
+      select aus.*, pm.papel as _modulo_papel
       from public.acessos_usuario_sistema aus
       join public.sistemas s on s.id = aus.sistema_id
+      left join ${SERVICOS_SCHEMA}.permissoes_modulo pm
+        on pm.colaborador_id = aus.colaborador_id and pm.modulo = $3
       where aus.colaborador_id = $1
         and aus.ativo = true
         and s.slug = $2
         and s.ativo = true
       limit 1;
     `,
-    [collaboradorId, SERVICOS_SYSTEM_SLUG],
+    [collaboradorId, SERVICOS_SYSTEM_SLUG, modulo],
   );
 
-  return rows[0] || null;
-}
+  const row = rows[0];
+  if (!row) return { access: null as Record<string, unknown> | null, moduleRole: null as string | null };
 
-async function getServicosModuleRole(
-  collaboradorId: string,
-  access: Record<string, unknown> | null,
-  modulo: string = 'financeiro',
-) {
+  const { _modulo_papel, ...access } = row as Record<string, unknown> & { _modulo_papel: string | null };
   const accessLevel = getAccessLevel(access);
-  if (accessLevel === 'admin') return 'financeiro';
-  if (!accessLevel) return null;
 
-  const rows = await sql!.unsafe(
-    `select papel from ${SERVICOS_SCHEMA}.permissoes_modulo where colaborador_id = $1 and modulo = $2 limit 1;`,
-    [collaboradorId, modulo],
-  );
+  let moduleRole: string | null;
+  if (accessLevel === 'admin') {
+    moduleRole = 'financeiro';
+  } else if (!accessLevel) {
+    moduleRole = null;
+  } else {
+    moduleRole = _modulo_papel || 'usuario';
+  }
 
-  return rows[0]?.papel || 'usuario';
+  return { access, moduleRole };
 }
 
 // moduleRole so e' checado quando explicitamente passado (mesmo comportamento de antes quando
@@ -1103,17 +1116,18 @@ async function handleRequest(request: Request): Promise<Response> {
         }
       }
       ensureHasAccess(access);
-      const restringeReprovacaoAprovada = await getRestringeReprovacaoContasAPagar();
+      // As 3 chamadas abaixo so dependem do collaborator ja resolvido (nao uma da outra) --
+      // paralelizadas pra nao serializar 2 queries + 1 chamada de Storage (assinar a URL da
+      // assinatura) no boot do login, que ate aqui rodavam uma depois da outra sem motivo.
+      const [restringeReprovacaoAprovada, tenantRows, assinaturaUrl] = await Promise.all([
+        getRestringeReprovacaoContasAPagar(),
+        sql.unsafe(`select slug from public.tenants where id = $1 limit 1;`, [collaborator?.tenant_id ?? null]),
+        collaborator ? createSignatureSignedUrl(createStorageAdminClient(), collaborator.assinatura_path) : Promise.resolve(null),
+      ]);
       const podeReprovarAprovada = restringeReprovacaoAprovada ? isFinanceiro(moduleRole) : isPagador(moduleRole);
-      const tenantRows = await sql.unsafe(`select slug from public.tenants where id = $1 limit 1;`, [collaborator?.tenant_id ?? null]);
       return json({
         tenant_slug: tenantRows[0]?.slug ?? null,
-        row: collaborator
-          ? {
-              ...collaborator,
-              assinatura_url: await createSignatureSignedUrl(createStorageAdminClient(), collaborator.assinatura_path),
-            }
-          : collaborator,
+        row: collaborator ? { ...collaborator, assinatura_url: assinaturaUrl } : collaborator,
         access,
         role: moduleRole,
         must_change_password: mapMustChangePassword(collaborator),
@@ -1913,6 +1927,25 @@ async function handleRequest(request: Request): Promise<Response> {
 
       const whereClause = clauses.length ? `where ${clauses.join(' and ')}` : '';
       const orderBy = ORDER_BY_COLUMNS[String(filters.order_by || '')] || ORDER_BY_COLUMNS.criado_em;
+
+      // Paginacao incremental opcional ("Carregar mais" no front, ver financeiroApi.solicitacoes.list):
+      // so entra em vigor quando o chamador manda limit explicitamente -- sem limit, comportamento
+      // identico a antes (devolve tudo). Diferente do antigo 'limit 200' fixo (que escondia pagas
+      // recentes em silencio, caso no 543): aqui o corte e' sempre visivel no front via `total`
+      // (count(*) over(), 1 query so, sem round-trip extra) comparado a `rows.length` acumulado.
+      const limitRaw = Number(filters.limit);
+      const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : null;
+      const offsetRaw = Number(filters.offset);
+      const offset = limit !== null && Number.isInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
+      let limitClause = '';
+      if (limit !== null) {
+        values.push(limit);
+        const limitParam = values.length;
+        values.push(offset);
+        const offsetParam = values.length;
+        limitClause = `limit $${limitParam} offset $${offsetParam}`;
+      }
+
       const rows = await sql.unsafe(
         `
           select
@@ -1931,7 +1964,8 @@ async function handleRequest(request: Request): Promise<Response> {
               sp.data_vencimento
             ) as vencimento_efetivo,
             coalesce(an.anexos_total, 0) as anexos_total,
-            coalesce(an.nota_fiscal_total, 0) as nota_fiscal_total
+            coalesce(an.nota_fiscal_total, 0) as nota_fiscal_total,
+            count(*) over() as _total_count
           from ${SERVICOS_SCHEMA}.solicitacoes_pagamento sp
           join public.colaboradores c on c.id = sp.solicitante_id
           left join public.colaboradores ac on ac.id = sp.aprovador_destino_id
@@ -1965,16 +1999,19 @@ async function handleRequest(request: Request): Promise<Response> {
             where solicitacao_id = sp.id
           ) pp on true
           ${whereClause}
-          order by ${orderBy};
+          order by ${orderBy}
+          ${limitClause};
         `,
-        // Sem limit de proposito: as telas (Pagamentos, Calendario, Minhas Solicitacoes) filtram e
-        // paginam no cliente, entao um corte silencioso escondia registros (ex.: com 'limit 200' e
-        // ordem por vencimento asc, as pagas recentes sumiam de Pagamentos). Se o volume crescer a
-        // ponto de pesar, mover filtro de status/periodo pro servidor em vez de recolocar o limit.
         values,
       );
 
-      return json({ rows });
+      const total = rows.length ? Number(rows[0]._total_count) : 0;
+      const cleanRows = rows.map((row: Record<string, unknown>) => {
+        const { _total_count, ...rest } = row;
+        return rest;
+      });
+
+      return json({ rows: cleanRows, total });
     }
 
     if (action === 'relatorio_financeiro') {
