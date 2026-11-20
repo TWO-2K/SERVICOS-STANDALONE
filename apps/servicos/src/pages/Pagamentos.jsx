@@ -413,6 +413,9 @@ export default function Pagamentos() {
       ),
     ).then((results) => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'anexos', solicitacaoId] });
+      // SolicitacaoDrawer.jsx agora busca anexos via get_detalhe, cacheado em 'detalhe-solicitacao'
+      // -- sem essa invalidacao o drawer de visualizacao ficaria sem o comprovante recem-enviado.
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       const falhas = results.filter((result) => result.status === 'rejected');
       if (falhas.length > 0) {
         toast({
@@ -469,6 +472,7 @@ export default function Pagamentos() {
     onSuccess: ({ row, parcelaAlvoId }, variables, context) => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });
       queryClient.invalidateQueries({ queryKey: context.parcelasKey });
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', row.id] });
       uploadComprovantesEmBackground(row.id, parcelaAlvoId, variables.files);
     },
     onError: (error, variables, context) => {
@@ -602,6 +606,7 @@ export default function Pagamentos() {
     mutationFn: ({ parcelaId, motivo }) => financeiroApi.parcelas.cancelar(parcelaId, motivo),
     onSuccess: (_row, { solicitacaoId }) => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'parcelas', solicitacaoId] });
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });
       toast({ title: 'Parcela cancelada' });
       setCancelarParcelaTarget(null);
@@ -633,6 +638,7 @@ export default function Pagamentos() {
     mutationFn: ({ parcelaId, motivo }) => financeiroApi.parcelas.reverterPagamento(parcelaId, motivo),
     onSuccess: (_row, { solicitacaoId }) => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'parcelas', solicitacaoId] });
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });
       toast({ title: 'Pagamento revertido' });
       setReverterPagamentoTarget(null);
@@ -661,6 +667,7 @@ export default function Pagamentos() {
     mutationFn: (parcelasPayload) => financeiroApi.parcelas.criar(dialogRowId, parcelasPayload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servicos', 'parcelas', dialogRowId] });
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', dialogRowId] });
       setDraftParcelas([]);
       toast({ title: 'Plano de pagamento definido' });
     },

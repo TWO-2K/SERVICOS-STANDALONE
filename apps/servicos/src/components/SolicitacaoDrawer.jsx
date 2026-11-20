@@ -242,47 +242,30 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
 
   const solicitacaoId = solicitacao?.id;
 
-  const anexosQuery = useQuery({
-    queryKey: ['servicos', 'anexos', solicitacaoId],
-    queryFn: () => financeiroApi.anexos.list(solicitacaoId),
+  // list_anexos + list_parcelas + historico eram 3 chamadas separadas (3x ensureRowAccess no
+  // backend) pra abrir o mesmo drawer -- consolidadas numa unica action get_detalhe/query. Mesmo
+  // com parcelasSlot (Pagamentos.jsx busca as parcelas por conta propria e injeta o slot), ainda
+  // busca aqui tambem -- redundante nesse caso, mas inofensivo, e simplifica pra 1 query so.
+  const detalheQuery = useQuery({
+    queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId],
+    queryFn: () => financeiroApi.solicitacoes.getDetalhe(solicitacaoId),
     enabled: Boolean(solicitacaoId),
   });
-  const anexos = anexosQuery.data || [];
-  const anexosLoading = anexosQuery.isLoading;
-
-  const parcelasQuery = useQuery({
-    queryKey: ['servicos', 'parcelas', solicitacaoId],
-    queryFn: () => financeiroApi.parcelas.list(solicitacaoId),
-    enabled: Boolean(solicitacaoId) && !parcelasSlot,
-  });
-  const parcelas = parcelasQuery.data || [];
-  const parcelasLoading = parcelasQuery.isLoading;
-
-  const historicoQuery = useQuery({
-    queryKey: ['servicos', 'historico', solicitacaoId],
-    queryFn: () => financeiroApi.historico.list(solicitacaoId),
-    enabled: Boolean(solicitacaoId),
-  });
-  const historico = historicoQuery.data || [];
-  const historicoLoading = historicoQuery.isLoading;
+  const anexos = detalheQuery.data?.anexos || [];
+  const anexosLoading = detalheQuery.isLoading;
+  const parcelas = detalheQuery.data?.parcelas || [];
+  const parcelasLoading = detalheQuery.isLoading;
+  const historico = detalheQuery.data?.historico || [];
+  const historicoLoading = detalheQuery.isLoading;
 
   useEffect(() => {
-    if (anexosQuery.error) {
-      toast({ title: 'Não foi possível carregar os anexos', description: getFriendlyErrorMessage(anexosQuery.error) });
+    if (detalheQuery.error) {
+      toast({
+        title: 'Não foi possível carregar os detalhes da solicitação',
+        description: getFriendlyErrorMessage(detalheQuery.error),
+      });
     }
-  }, [anexosQuery.error]);
-
-  useEffect(() => {
-    if (parcelasQuery.error) {
-      toast({ title: 'Não foi possível carregar as parcelas', description: getFriendlyErrorMessage(parcelasQuery.error) });
-    }
-  }, [parcelasQuery.error]);
-
-  useEffect(() => {
-    if (historicoQuery.error) {
-      toast({ title: 'Não foi possível carregar o histórico', description: getFriendlyErrorMessage(historicoQuery.error) });
-    }
-  }, [historicoQuery.error]);
+  }, [detalheQuery.error]);
 
   async function handleCopiarNumero(numero) {
     try {
@@ -301,14 +284,14 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
   }
 
   function loadAnexos() {
-    queryClient.invalidateQueries({ queryKey: ['servicos', 'anexos', solicitacaoId] });
+    queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
     // Mesmo motivo do uploadAnexoMutation: `anexos_total`/`nota_fiscal_total` das listagens
     // (Aprovacoes/Pagamentos/MinhasSolicitacoes) ficariam desatualizados ate o proximo refetch.
     queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });
   }
 
   function loadHistorico() {
-    queryClient.invalidateQueries({ queryKey: ['servicos', 'historico', solicitacaoId] });
+    queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
   }
 
   const uploadAnexoMutation = useMutation({
@@ -316,7 +299,10 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
       uploadAnexo({ file, solicitacaoId, tipoAnexo, sigiloso, assinaturasNecessarias }),
     onSuccess: (row, variables) => {
       setAnexosPendentes((current) => current.filter((item) => item.tempId !== variables.tempId));
-      queryClient.setQueryData(['servicos', 'anexos', solicitacaoId], (old) => [...(old || []), row]);
+      queryClient.setQueryData(['servicos', 'detalhe-solicitacao', solicitacaoId], (old) => ({
+        ...(old || {}),
+        anexos: [...(old?.anexos || []), row],
+      }));
       loadHistorico();
       // As listagens de solicitacoes (Aprovacoes/Pagamentos/MinhasSolicitacoes) trazem
       // `anexos_total` pra avisar sem anexo direto no clique de aprovar -- sem essa
@@ -477,7 +463,7 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
       // Aprovacoes/Pagamentos) -- invalidar a mesma chave-prefixo que as demais mutations de status
       // ja usam basta pra refletir o novo vencimento sem precisar de callback subindo pro pai.
       queryClient.invalidateQueries({ queryKey: ['servicos', 'solicitacoes'] });
-      queryClient.invalidateQueries({ queryKey: ['servicos', 'historico', solicitacaoId] });
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       setEditandoVencimento(false);
       toast({ title: 'Vencimento atualizado' });
     },
@@ -489,10 +475,11 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
   const atualizarVencimentoParcelaMutation = useMutation({
     mutationFn: ({ id, dataVencimento }) => financeiroApi.parcelas.atualizarVencimento(id, dataVencimento),
     onSuccess: (row) => {
-      queryClient.setQueryData(['servicos', 'parcelas', solicitacaoId], (old) =>
-        (old || []).map((item) => (item.id === row.id ? row : item)),
-      );
-      queryClient.invalidateQueries({ queryKey: ['servicos', 'historico', solicitacaoId] });
+      queryClient.setQueryData(['servicos', 'detalhe-solicitacao', solicitacaoId], (old) => ({
+        ...(old || {}),
+        parcelas: (old?.parcelas || []).map((item) => (item.id === row.id ? row : item)),
+      }));
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       setParcelaEditandoId(null);
       toast({ title: 'Vencimento da parcela atualizado' });
     },
@@ -602,7 +589,10 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
         posicao,
       });
       if (anexoRow) {
-        queryClient.setQueryData(['servicos', 'anexos', solicitacaoId], (old) => [...(old || []), anexoRow]);
+        queryClient.setQueryData(['servicos', 'detalhe-solicitacao', solicitacaoId], (old) => ({
+          ...(old || {}),
+          anexos: [...(old?.anexos || []), anexoRow],
+        }));
         loadHistorico();
         toast({ title: 'PDF único assinado e arquivado na solicitação' });
       }
@@ -655,10 +645,11 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
         empresaNome: solicitacao?.empresa_nome,
       }),
     onSuccess: (row) => {
-      queryClient.setQueryData(['servicos', 'anexos', solicitacaoId], (old) =>
-        (old || []).map((item) => (item.id === row.id ? row : item)),
-      );
-      queryClient.invalidateQueries({ queryKey: ['servicos', 'historico', solicitacaoId] });
+      queryClient.setQueryData(['servicos', 'detalhe-solicitacao', solicitacaoId], (old) => ({
+        ...(old || {}),
+        anexos: (old?.anexos || []).map((item) => (item.id === row.id ? row : item)),
+      }));
+      queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
       setAnexoParaAssinar(null);
       toast({ title: 'Anexo assinado' });
     },
@@ -727,16 +718,17 @@ export default function SolicitacaoDrawer({ solicitacao, onOpenChange, footer = 
           posicao,
           empresaNome: solicitacao?.empresa_nome,
         });
-        queryClient.setQueryData(['servicos', 'anexos', solicitacaoId], (old) =>
-          (old || []).map((item) => (item.id === row.id ? row : item)),
-        );
+        queryClient.setQueryData(['servicos', 'detalhe-solicitacao', solicitacaoId], (old) => ({
+          ...(old || {}),
+          anexos: (old?.anexos || []).map((item) => (item.id === row.id ? row : item)),
+        }));
         sucesso += 1;
       } catch (error) {
         toast({ title: `Falha ao assinar "${anexo.nome_arquivo}"`, description: getFriendlyErrorMessage(error) });
       }
     }
 
-    queryClient.invalidateQueries({ queryKey: ['servicos', 'historico', solicitacaoId] });
+    queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
     setAssinandoLote(null);
     if (sucesso > 0) {
       toast({ title: `${sucesso} de ${fila.length} anexo(s) assinado(s)` });

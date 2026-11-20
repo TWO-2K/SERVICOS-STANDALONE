@@ -1,6 +1,7 @@
 import { precacheAndRoute, createHandlerBoundToURL, cleanupOutdatedCaches } from 'workbox-precaching';
 import { registerRoute, NavigationRoute } from 'workbox-routing';
-import { NetworkOnly } from 'workbox-strategies';
+import { NetworkOnly, CacheFirst } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
 
 // Service worker unico deste app: alem do cache offline do app shell (workbox, injectManifest),
 // tambem trata Web Push -- os dois nao podem ser SWs separados porque ambos disputariam o mesmo
@@ -14,6 +15,17 @@ cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
 registerRoute(({ url }) => url.hostname.endsWith('.supabase.co'), new NetworkOnly());
+
+// Imagens pesadas (ex.: diagrama de veiculo da Oficina) ficam fora do precache (globPatterns do
+// injectManifest nao inclui webp/jpg) e so entram no cache depois que o usuario abre a tela que
+// usa -- evita baixar tudo isso no primeiro acesso, so pra ficar "pronto" sem nunca ser usado.
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new CacheFirst({
+    cacheName: 'servicos-images',
+    plugins: [new ExpirationPlugin({ maxEntries: 30, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  }),
+);
 
 registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html')));
 

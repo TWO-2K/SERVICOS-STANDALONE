@@ -2006,8 +2006,17 @@ async function handleRequest(request: Request): Promise<Response> {
       // "Pago" cobre a vista e parcelado: a vista nunca cria linhas em parcelas_pagamento, entao
       // valor_pago (soma das parcelas quitadas) fica 0 mesmo com status = 'pago' -- nesse caso o
       // valor pago de verdade e o valor cheio da solicitacao.
-      const baseCte = `
-        with base as (
+      //
+      // As 9 consultas abaixo reaproveitavam essa CTE via copy-paste, recomputando o mesmo
+      // join+lateral (full scan da tabela) 9 vezes por chamada de relatorio. Materializa uma vez
+      // numa temp table ("on commit drop", dropada no fim da transacao da própria requisicao --
+      // ver runInTenant/_shared/tenant-db.ts, que ja envolve a requisicao inteira numa unica
+      // transacao) e as 9 consultas so leem dela.
+      const values = [de, ate, empresaId, numero, solicitanteId, aprovadorDestinoId, departamentoId, unidadeId];
+
+      await sql.unsafe(
+        `
+          create temp table base_relatorio on commit drop as
           select
             sp.*,
             c.nome as solicitante_nome,
@@ -2043,14 +2052,13 @@ async function handleRequest(request: Request): Promise<Response> {
             and ($5::uuid is null or sp.solicitante_id = $5)
             and ($6::uuid is null or sp.aprovador_destino_id = $6)
             and ($7::uuid is null or sp.departamento_id = $7)
-            and ($8::uuid is null or sp.unidade_id = $8)
-        )
-      `;
-      const values = [de, ate, empresaId, numero, solicitanteId, aprovadorDestinoId, departamentoId, unidadeId];
+            and ($8::uuid is null or sp.unidade_id = $8);
+        `,
+        values,
+      );
 
       const resumoRows = await sql.unsafe(
         `
-          ${baseCte}
           select
             count(*) as total_quantidade,
             coalesce(sum(valor), 0) as total_valor,
@@ -2065,32 +2073,27 @@ async function handleRequest(request: Request): Promise<Response> {
             coalesce(sum(valor) filter (where status = 'aprovado' and vencimento_efetivo < current_date), 0) as valor_atrasadas,
             count(*) filter (where status = 'reprovado') as total_reprovadas,
             count(*) filter (where status = 'cancelado') as total_canceladas
-          from base;
+          from base_relatorio;
         `,
-        values,
       );
 
       const porCategoriaRows = await sql.unsafe(
         `
-          ${baseCte}
           select categoria, count(*) as quantidade, coalesce(sum(valor), 0) as valor
-          from base
+          from base_relatorio
           where status not in ('reprovado', 'cancelado')
           group by categoria
           order by valor desc;
         `,
-        values,
       );
 
       const porStatusRows = await sql.unsafe(
         `
-          ${baseCte}
           select status, count(*) as quantidade, coalesce(sum(valor), 0) as valor
-          from base
+          from base_relatorio
           group by status
           order by valor desc;
         `,
-        values,
       );
 
       // Rankings do dashboard "Monitoramento de Requisicoes Financeiras": todas as solicitacoes
@@ -2098,71 +2101,61 @@ async function handleRequest(request: Request): Promise<Response> {
       // "Total de Solicitacoes" (conta tudo, inclusive canceladas/reprovadas).
       const porSetorRows = await sql.unsafe(
         `
-          ${baseCte}
           select coalesce(departamento_nome, 'Sem setor') as setor, count(*) as quantidade, coalesce(sum(valor), 0) as valor
-          from base
+          from base_relatorio
           group by 1
           order by quantidade desc, valor desc
           limit 20;
         `,
-        values,
       );
 
       const porUnidadeRows = await sql.unsafe(
         `
-          ${baseCte}
           select coalesce(unidade_nome, 'Sem unidade') as unidade, count(*) as quantidade, coalesce(sum(valor), 0) as valor
-          from base
+          from base_relatorio
           group by 1
           order by quantidade desc, valor desc
           limit 20;
         `,
-        values,
       );
 
       // Pendencias por diretor(a): so solicitacoes ainda pendentes de analise (status = 'pendente'),
       // agrupadas pelo aprovador designado -- ver nota sobre "diretor(a)" acima.
       const porDiretorRows = await sql.unsafe(
         `
-          ${baseCte}
           select coalesce(aprovador_destino_nome, 'Sem aprovador') as diretor, count(*) as quantidade, coalesce(sum(valor), 0) as valor
-          from base
+          from base_relatorio
           where status = 'pendente'
           group by 1
           order by valor desc
           limit 20;
         `,
-        values,
       );
 
       // Pendencias de pagamento por setor: aprovadas pela diretoria, ainda nao pagas.
       const pendenciaPagamentoPorSetorRows = await sql.unsafe(
         `
-          ${baseCte}
           select coalesce(departamento_nome, 'Sem setor') as setor, count(*) as quantidade, coalesce(sum(valor - valor_pago), 0) as valor
-          from base
+          from base_relatorio
           where status = 'aprovado'
           group by 1
           order by valor desc
           limit 20;
         `,
-        values,
       );
 
       // Proximos vencimentos: fila operacional das solicitacoes aprovadas aguardando pagamento,
       // ordenada da mais proxima/vencida pra mais distante.
       const proximosVencimentosRows = await sql.unsafe(
         `
-          ${baseCte}
           select
             numero, titulo, solicitante_nome, departamento_nome, unidade_nome,
             vencimento_efetivo, aprovador_destino_nome, status, valor
-          from base
+          from base_relatorio
           where status = 'aprovado' and vencimento_efetivo is not null
           order by vencimento_efetivo asc
           limit 50;
         `,
-        values,
       );
 
       // Evolucao mensal: agrupa por mes de criacao (mesmo campo usado no filtro de periodo,
@@ -2170,17 +2163,15 @@ async function handleRequest(request: Request): Promise<Response> {
       // nao devolver uma serie enorme quando o filtro de data fica aberto.
       const porMesRows = await sql.unsafe(
         `
-          ${baseCte}
           select
             to_char(date_trunc('month', criado_em), 'YYYY-MM') as mes,
             coalesce(sum(valor), 0) as valor_solicitado,
             coalesce(sum(case when status = 'pago' then valor else valor_pago end), 0) as valor_pago
-          from base
+          from base_relatorio
           group by 1
           order by 1 desc
           limit 12;
         `,
-        values,
       );
       porMesRows.reverse();
 
@@ -2990,6 +2981,87 @@ async function handleRequest(request: Request): Promise<Response> {
       await insertHistorico(id, 'pendencia_liberada', collaborator!.id as string, observacao);
       await notifySolicitantePendencia(row, false, collaborator!.id as string);
       return json({ row });
+    }
+
+    if (action === 'get_detalhe') {
+      // Consolida list_anexos + list_parcelas + historico (abertas pelo drawer de solicitacao
+      // ao mesmo tempo) numa chamada so: 1 ensureRowAccess em vez de 3 (cada ensureRowAccess ja
+      // faz um select+join completo em solicitacoes_pagamento) + as 3 queries de dados em
+      // paralelo. As actions antigas continuam existindo ate confirmar que nenhum outro
+      // consumidor as chama mais.
+      const solicitacaoId = String(body.solicitacao_id || '');
+      if (!solicitacaoId) return json({ error: 'solicitacao_id obrigatorio.' }, 400);
+      const solicitacaoRow = await ensureRowAccess(solicitacaoId, moduleRole, collaborator);
+
+      const departamentoIdDetalhe = collaborator?.departamento_id as string | null | undefined;
+      const unidadeIdDetalhe = collaborator?.unidade_id as string | null | undefined;
+
+      const [anexosRows, parcelasRows, historicoRows, podeVerSigiloso] = await Promise.all([
+        sql.unsafe(
+          `select * from ${SERVICOS_SCHEMA}.anexos_solicitacao where solicitacao_id = $1 order by criado_em asc;`,
+          [solicitacaoId],
+        ),
+        sql.unsafe(
+          `select * from ${SERVICOS_SCHEMA}.parcelas_pagamento where solicitacao_id = $1 order by numero asc;`,
+          [solicitacaoId],
+        ),
+        sql.unsafe(
+          `
+            select h.*, c.nome as autor_nome
+            from ${SERVICOS_SCHEMA}.historico_solicitacao h
+            left join public.colaboradores c on c.id = h.autor_id
+            where h.solicitacao_id = $1
+            order by h.criado_em desc;
+          `,
+          [solicitacaoId],
+        ),
+        // Anexo sigiloso e mais restrito que o acesso normal a solicitacao (canAccessSolicitacao):
+        // contas_a_pagar tem acesso a linha mas nunca ve anexo sigiloso, por isso usa
+        // canViewAnexoSigiloso aqui, nao canAccessSolicitacao -- mesma regra de list_anexos.
+        canViewAnexoSigiloso(
+          moduleRole,
+          collaborator?.id as string | undefined,
+          solicitacaoRow,
+          departamentoIdDetalhe,
+          unidadeIdDetalhe,
+        ),
+      ]);
+
+      const anexosVisiveis = anexosRows.filter((anexo: Record<string, unknown>) => !anexo.sigiloso || podeVerSigiloso);
+
+      const assinaturasRows = anexosVisiveis.length
+        ? await sql.unsafe(
+            `
+              select sa.anexo_id, sa.colaborador_id, sa.papel, sa.assinado_em, c.nome
+              from ${SERVICOS_SCHEMA}.assinaturas_anexo sa
+              join public.colaboradores c on c.id = sa.colaborador_id
+              where sa.anexo_id = any($1::uuid[])
+              order by sa.assinado_em asc;
+            `,
+            [anexosVisiveis.map((anexo: Record<string, unknown>) => anexo.id)],
+          )
+        : [];
+      const assinaturasPorAnexo = new Map<string, Record<string, unknown>[]>();
+      for (const assinatura of assinaturasRows) {
+        const key = String(assinatura.anexo_id);
+        if (!assinaturasPorAnexo.has(key)) assinaturasPorAnexo.set(key, []);
+        assinaturasPorAnexo.get(key)!.push({
+          colaborador_id: assinatura.colaborador_id,
+          nome: assinatura.nome,
+          papel: assinatura.papel,
+          assinado_em: assinatura.assinado_em,
+        });
+      }
+
+      const anexosComUrls = await Promise.all(
+        anexosVisiveis.map(async (anexo: Record<string, unknown>) => ({
+          ...anexo,
+          url: await createSignedUrlForPath(String(anexo.storage_path)),
+          assinaturas: assinaturasPorAnexo.get(String(anexo.id)) || [],
+        })),
+      );
+
+      return json({ anexos: anexosComUrls, parcelas: parcelasRows, historico: historicoRows });
     }
 
     if (action === 'list_anexos') {

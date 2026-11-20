@@ -71,6 +71,9 @@ export default defineConfig({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,woff2,woff,png,ico}'],
+        // Imagens pesadas (diagrama de veiculo, oficina) sao webp e ficam fora do precache de
+        // proposito -- cacheadas sob demanda pela rota CacheFirst em src/sw.js, nao no boot do app.
+        globIgnores: ['**/assets/oficina/*.webp'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       devOptions: { enabled: false },

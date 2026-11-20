@@ -2,7 +2,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 
 import { Button } from '@/shared/ui';
 import { AVARIA_TIPOS, DOCUMENTACAO_ITENS, PNEUS, SEGURANCA_ITENS } from '@/lib/checklistItens';
-import vehicleDiagram from '@/assets/oficina/vehicle-diagram.png';
+import vehicleDiagram from '@/assets/oficina/vehicle-diagram.webp';
 import './checklistDocumento.css';
 
 function formatDate(value) {

@@ -4,7 +4,7 @@ import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pa
 
 import { Spinner } from '@/shared/ui';
 import { AVARIA_TIPOS } from '@/lib/checklistItens';
-import vehicleDiagram from '@/assets/oficina/vehicle-diagram.png';
+import vehicleDiagram from '@/assets/oficina/vehicle-diagram.webp';
 
 function getPercentPoint(event, container) {
   const rect = container.getBoundingClientRect();

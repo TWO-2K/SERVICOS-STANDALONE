@@ -117,6 +117,10 @@ export default function NovaSolicitacaoDrawer({ open, onOpenChange, solicitacao 
       setAnexoProgresso(null);
     }
     queryClient.invalidateQueries({ queryKey: ['servicos', 'anexos', solicitacaoId] });
+    // SolicitacaoDrawer.jsx nao le mais essa chave isolada -- os anexos dela vem de get_detalhe,
+    // cacheados em 'detalhe-solicitacao'. Invalida as duas pra nao deixar o drawer de visualizacao
+    // com anexos desatualizados apos criar/editar a solicitacao aqui.
+    queryClient.invalidateQueries({ queryKey: ['servicos', 'detalhe-solicitacao', solicitacaoId] });
     return falhas;
   }
 

@@ -318,6 +318,16 @@ export const financeiroApi = {
       const result = await invokeServicos({ action: 'atualizar_vencimento', id, data_vencimento: dataVencimento });
       return result.row || null;
     },
+    // Consolida anexos.list + parcelas.list + historico.list (abertos juntos pelo drawer) numa
+    // chamada so -- ver action 'get_detalhe' na edge function.
+    async getDetalhe(solicitacaoId) {
+      const result = await invokeServicos({ action: 'get_detalhe', solicitacao_id: solicitacaoId });
+      return {
+        anexos: result.anexos || [],
+        parcelas: result.parcelas || [],
+        historico: result.historico || [],
+      };
+    },
   },
   anexos: {
     async list(solicitacaoId) {
