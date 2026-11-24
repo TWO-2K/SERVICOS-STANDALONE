@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import postgres from 'https://deno.land/x/postgresjs@v3.4.5/mod.js';
-import { createScopedSql, runInTenant, tenantIdOf } from '../_shared/tenant-db.ts';
+import { createScopedSql, getCurrentTenantId, runInTenant, tenantIdOf } from '../_shared/tenant-db.ts';
 import { buildCorsHeaders } from '../_shared/cors.ts';
 import { sendPushToColaborador } from '../_shared/push.ts';
 import { proximaDataUtil } from '../_shared/diasUteis.ts';
@@ -253,13 +253,21 @@ function isPagador(moduleRole: string | null) {
 // solicitacoes em dinheiro a solicitante/aprovador-destino/financeiro, excluindo contas_a_pagar
 // e a ampliacao por setor. Cacheado com TTL curto (mesma ideia do authContextCache) pra nao
 // disparar uma query extra a cada chamada -- o valor muda raramente.
+// Chaveado por tenant_id: essas variaveis sao globais ao isolate e o Supabase reaproveita a
+// mesma instancia da function entre requisicoes de tenants diferentes, entao uma chave global
+// (sem tenant_id) vazaria a configuracao de um tenant para outro enquanto o cache estiver quente.
 const CONFIG_MODULO_TTL_MS = 30 * 1000;
-let restringeVisibilidadeDinheiroCache: { expiresAt: number; value: boolean } | null = null;
+
+function cacheKey(): string {
+  return getCurrentTenantId() ?? 'sem-tenant';
+}
+
+const restringeVisibilidadeDinheiroCache = new Map<string, { expiresAt: number; value: boolean }>();
 
 async function getRestringeVisibilidadeDinheiro(): Promise<boolean> {
-  if (restringeVisibilidadeDinheiroCache && restringeVisibilidadeDinheiroCache.expiresAt > Date.now()) {
-    return restringeVisibilidadeDinheiroCache.value;
-  }
+  const key = cacheKey();
+  const cached = restringeVisibilidadeDinheiroCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!sql) return true;
   const rows = await sql.unsafe(
     `select restringir_visibilidade_pagamento_dinheiro from ${SERVICOS_SCHEMA}.configuracoes_modulo where modulo = $1 limit 1;`,
@@ -268,26 +276,26 @@ async function getRestringeVisibilidadeDinheiro(): Promise<boolean> {
   // Fail-safe: sem linha de config, assume restritivo (mais seguro) -- espelha
   // public.servicos_restringe_visibilidade_dinheiro() no banco.
   const value = rows[0] ? Boolean(rows[0].restringir_visibilidade_pagamento_dinheiro) : true;
-  restringeVisibilidadeDinheiroCache = { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value };
+  restringeVisibilidadeDinheiroCache.set(key, { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value });
   return value;
 }
 
 // Flag configuravel que dispensa aprovador em solicitacoes de suprimento de caixa
 // (tipo_beneficiario = 'colaborador') -- o financeiro (label "Gerente") aprova/paga direto.
 // Fail-safe false (exige aprovador) se a linha de config nao existir -- mais conservador.
-let suprimentoCaixaSemAprovadorCache: { expiresAt: number; value: boolean } | null = null;
+const suprimentoCaixaSemAprovadorCache = new Map<string, { expiresAt: number; value: boolean }>();
 
 async function getSuprimentoCaixaSemAprovador(): Promise<boolean> {
-  if (suprimentoCaixaSemAprovadorCache && suprimentoCaixaSemAprovadorCache.expiresAt > Date.now()) {
-    return suprimentoCaixaSemAprovadorCache.value;
-  }
+  const key = cacheKey();
+  const cached = suprimentoCaixaSemAprovadorCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!sql) return false;
   const rows = await sql.unsafe(
     `select suprimento_caixa_sem_aprovador from ${SERVICOS_SCHEMA}.configuracoes_modulo where modulo = $1 limit 1;`,
     ['financeiro'],
   );
   const value = rows[0] ? Boolean(rows[0].suprimento_caixa_sem_aprovador) : false;
-  suprimentoCaixaSemAprovadorCache = { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value };
+  suprimentoCaixaSemAprovadorCache.set(key, { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value });
   return value;
 }
 
@@ -296,19 +304,19 @@ async function getSuprimentoCaixaSemAprovador(): Promise<boolean> {
 // 'pendente' em Aprovacoes e o financeiro aprova manualmente. So tem efeito quando o flag
 // mestre (suprimento_caixa_sem_aprovador) tambem esta ativo. Fail-safe false (comportamento
 // atual: aprovacao manual).
-let suprimentoCaixaAutoAprovarCache: { expiresAt: number; value: boolean } | null = null;
+const suprimentoCaixaAutoAprovarCache = new Map<string, { expiresAt: number; value: boolean }>();
 
 async function getSuprimentoCaixaAutoAprovar(): Promise<boolean> {
-  if (suprimentoCaixaAutoAprovarCache && suprimentoCaixaAutoAprovarCache.expiresAt > Date.now()) {
-    return suprimentoCaixaAutoAprovarCache.value;
-  }
+  const key = cacheKey();
+  const cached = suprimentoCaixaAutoAprovarCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!sql) return false;
   const rows = await sql.unsafe(
     `select suprimento_caixa_auto_aprovar from ${SERVICOS_SCHEMA}.configuracoes_modulo where modulo = $1 limit 1;`,
     ['financeiro'],
   );
   const value = rows[0] ? Boolean(rows[0].suprimento_caixa_auto_aprovar) : false;
-  suprimentoCaixaAutoAprovarCache = { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value };
+  suprimentoCaixaAutoAprovarCache.set(key, { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value });
   return value;
 }
 
@@ -316,15 +324,12 @@ async function getSuprimentoCaixaAutoAprovar(): Promise<boolean> {
 // criacao (acao create), nao afeta canAccessSolicitacao/visibilidade. Vazio/null = sem restricao
 // (qualquer colaborador com acesso ao modulo pode abrir), fail-safe permissivo pra nao trancar
 // ninguem fora se a linha de config nao existir.
-let suprimentoCaixaDepartamentosPermitidosCache: { expiresAt: number; value: string[] } | null = null;
+const suprimentoCaixaDepartamentosPermitidosCache = new Map<string, { expiresAt: number; value: string[] }>();
 
 async function getSuprimentoCaixaDepartamentosPermitidos(): Promise<string[]> {
-  if (
-    suprimentoCaixaDepartamentosPermitidosCache &&
-    suprimentoCaixaDepartamentosPermitidosCache.expiresAt > Date.now()
-  ) {
-    return suprimentoCaixaDepartamentosPermitidosCache.value;
-  }
+  const key = cacheKey();
+  const cached = suprimentoCaixaDepartamentosPermitidosCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!sql) return [];
   const rows = await sql.unsafe(
     `select suprimento_caixa_departamentos_permitidos from ${SERVICOS_SCHEMA}.configuracoes_modulo where modulo = $1 limit 1;`,
@@ -333,7 +338,7 @@ async function getSuprimentoCaixaDepartamentosPermitidos(): Promise<string[]> {
   const value = Array.isArray(rows[0]?.suprimento_caixa_departamentos_permitidos)
     ? (rows[0].suprimento_caixa_departamentos_permitidos as string[])
     : [];
-  suprimentoCaixaDepartamentosPermitidosCache = { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value };
+  suprimentoCaixaDepartamentosPermitidosCache.set(key, { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value });
   return value;
 }
 
@@ -341,19 +346,19 @@ async function getSuprimentoCaixaDepartamentosPermitidos(): Promise<string[]> {
 // ao papel financeiro. Quando desativada, contas_a_pagar tambem pode reprovar esse caso
 // especifico -- reprovar uma solicitacao ainda pendente nao e afetado por esta flag (ver
 // set_status). Fail-safe true (mais restritivo) se a linha de config nao existir.
-let restringeReprovacaoContasAPagarCache: { expiresAt: number; value: boolean } | null = null;
+const restringeReprovacaoContasAPagarCache = new Map<string, { expiresAt: number; value: boolean }>();
 
 async function getRestringeReprovacaoContasAPagar(): Promise<boolean> {
-  if (restringeReprovacaoContasAPagarCache && restringeReprovacaoContasAPagarCache.expiresAt > Date.now()) {
-    return restringeReprovacaoContasAPagarCache.value;
-  }
+  const key = cacheKey();
+  const cached = restringeReprovacaoContasAPagarCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!sql) return true;
   const rows = await sql.unsafe(
     `select restringir_reprovacao_contas_a_pagar from ${SERVICOS_SCHEMA}.configuracoes_modulo where modulo = $1 limit 1;`,
     ['financeiro'],
   );
   const value = rows[0] ? Boolean(rows[0].restringir_reprovacao_contas_a_pagar) : true;
-  restringeReprovacaoContasAPagarCache = { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value };
+  restringeReprovacaoContasAPagarCache.set(key, { expiresAt: Date.now() + CONFIG_MODULO_TTL_MS, value });
   return value;
 }
 
@@ -1311,12 +1316,14 @@ async function handleRequest(request: Request): Promise<Response> {
           collaborator!.id,
         ],
       );
-      // Invalida os caches em memoria pra a mudanca valer imediatamente nesta instancia da function.
-      restringeVisibilidadeDinheiroCache = null;
-      suprimentoCaixaSemAprovadorCache = null;
-      suprimentoCaixaAutoAprovarCache = null;
-      suprimentoCaixaDepartamentosPermitidosCache = null;
-      restringeReprovacaoContasAPagarCache = null;
+      // Invalida os caches em memoria deste tenant pra a mudanca valer imediatamente nesta
+      // instancia da function (outras instancias quentes seguem com o valor antigo ate o TTL expirar).
+      const configCacheKey = cacheKey();
+      restringeVisibilidadeDinheiroCache.delete(configCacheKey);
+      suprimentoCaixaSemAprovadorCache.delete(configCacheKey);
+      suprimentoCaixaAutoAprovarCache.delete(configCacheKey);
+      suprimentoCaixaDepartamentosPermitidosCache.delete(configCacheKey);
+      restringeReprovacaoContasAPagarCache.delete(configCacheKey);
       return json({ row: rows[0] });
     }
 

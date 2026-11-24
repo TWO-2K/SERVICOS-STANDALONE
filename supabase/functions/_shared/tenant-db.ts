@@ -10,10 +10,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 type AnySql = any;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const storage = new AsyncLocalStorage<AnySql>();
+type TenantStore = { tx: AnySql; tenantId: string };
+const storage = new AsyncLocalStorage<TenantStore>();
 
 export function createScopedSql(pool: AnySql): AnySql {
-  const current = () => storage.getStore() ?? pool;
+  const current = () => storage.getStore()?.tx ?? pool;
   return new Proxy(function () {}, {
     apply: (_target, _this, args) => current()(...args),
     get: (_target, prop) => {
@@ -36,8 +37,14 @@ export async function runInTenant<T>(pool: AnySql, tenantId: string, fn: () => P
   return await pool.begin(async (tx: AnySql) => {
     await tx.unsafe(`select set_config('app.tenant_id', $1, true);`, [tenantId]);
     await tx.unsafe('set local role app_tenant;');
-    return await storage.run(tx, fn);
+    return await storage.run({ tx, tenantId }, fn);
   });
+}
+
+// Tenant da requisicao atual (dentro de runInTenant) -- usado para chavear caches em memoria
+// que, por serem globais ao isolate, sao reaproveitados entre requisicoes de tenants diferentes.
+export function getCurrentTenantId(): string | null {
+  return storage.getStore()?.tenantId ?? null;
 }
 
 export function tenantIdOf(collaborator: Record<string, unknown> | null | undefined): string | null {
