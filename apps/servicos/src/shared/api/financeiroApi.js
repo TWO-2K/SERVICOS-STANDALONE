@@ -1,4 +1,4 @@
-import { assertSupabaseConfigured, supabase } from './supabaseClient';
+import { assertSupabaseConfigured, supabase, withFunctionsRegion } from './supabaseClient';
 import { removerArquivoAssinatura, uploadAssinatura } from './signatureStorage';
 
 function toError(message, status = 500, code, details, hint) {
@@ -27,7 +27,7 @@ async function invokeServicos(body = {}, accessTokenOverride) {
     throw toError('Sessao expirada. Faca login novamente.', 401, 'auth_required');
   }
 
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-api`, {
+  const response = await fetch(withFunctionsRegion(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-api`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

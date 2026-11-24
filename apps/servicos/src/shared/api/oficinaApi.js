@@ -1,4 +1,4 @@
-import { assertSupabaseConfigured, supabase } from './supabaseClient';
+import { assertSupabaseConfigured, supabase, withFunctionsRegion } from './supabaseClient';
 
 function toError(message, status = 500, code, details, hint) {
   const normalizedMessage =
@@ -66,7 +66,7 @@ async function invokeOficina(body = {}, accessTokenOverride, { signal, timeoutMs
   }
 
   const response = await fetchComTimeout(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-oficina-api`,
+    withFunctionsRegion(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-oficina-api`),
     {
       method: 'POST',
       headers: {
@@ -104,7 +104,7 @@ async function invokeOficinaPublico(body = {}, { signal, timeoutMs = DEFAULT_TIM
   assertSupabaseConfigured();
 
   const response = await fetchComTimeout(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-oficina-api`,
+    withFunctionsRegion(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/servicos-oficina-api`),
     {
       method: 'POST',
       headers: {

@@ -1,4 +1,4 @@
-# K-Pit
+# HUB
 
 App multi-modulo para operacao de oficina/concessionaria. Modulos planejados: Atendimento,
 Oficina, Financeiro, Estoque, Compras e RH.

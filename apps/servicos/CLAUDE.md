@@ -1,4 +1,4 @@
-# K-Pit (Servicos) — app-specific
+# HUB (Servicos) — app-specific
 
 > Documenta o que é específico deste app.
 

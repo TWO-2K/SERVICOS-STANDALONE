@@ -1,4 +1,4 @@
-# K-Pit — plataforma multiempresa (Financeiro + Oficina)
+# HUB — plataforma multiempresa (Financeiro + Oficina)
 
 Aplicacao independente (Financeiro + Oficina), multiempresa. Usa apenas o Supabase hospedado; nao ha ambiente local.
 

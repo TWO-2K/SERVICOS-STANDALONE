@@ -4,8 +4,8 @@ Dois projetos Vercel a partir do mesmo repositorio. O `vercel.json` de cada app 
 
 | Projeto | Root Directory | Porta local | Uso |
 |---|---|---|---|
-| K-Pit (clientes) | `apps/servicos` | 5177 | App dos clientes, acessado por `/<slug>` |
-| K-Pit Plataforma | `apps/plataforma` | 5178 | Painel do super-admin |
+| HUB (clientes) | `apps/servicos` | 5177 | App dos clientes, acessado por `/<slug>` |
+| HUB Plataforma | `apps/plataforma` | 5178 | Painel do super-admin |
 
 Em cada projeto: Framework Preset = Vite, Build Command = `npm run build` (raiz), Output Directory = `dist` do app.
 Se o Root Directory for a pasta do app, habilite "Include source files outside of the Root Directory" para o workspace da raiz.
@@ -16,7 +16,7 @@ Se o Root Directory for a pasta do app, habilite "Include source files outside o
 |---|---|---|
 | `VITE_SUPABASE_URL` | ambos | URL do projeto Supabase |
 | `VITE_SUPABASE_ANON_KEY` | ambos | Chave anon (publica) |
-| `VITE_APP_NAME` | clientes | Nome do produto (padrao `K-Pit`) |
+| `VITE_APP_NAME` | clientes | Nome do produto (padrao `HUB`) |
 | `VITE_APP_URL` | clientes | URL publica do app |
 | `VITE_LOGO_URL` | clientes | Logo padrao (opcional) |
 | `VITE_TURNSTILE_SITE_KEY` | clientes | Site key do captcha (opcional) |

@@ -1,7 +1,7 @@
 -- Dados minimos para uso local. Login: admin@servicos.local / Servicos@123
 select set_config('app.tenant_id', '55555555-5555-5555-5555-555555555555', false);
 insert into public.sistemas (slug, nome, descricao)
-values ('servicos', 'K-Pit', 'Financeiro + Oficina')
+values ('servicos', 'HUB', 'Financeiro + Oficina')
 on conflict (slug) do nothing;
 
 insert into public.empresas (id, nome, slug)

@@ -5,6 +5,15 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+const functionsRegion = import.meta.env.VITE_SERVICOS_FUNCTIONS_REGION;
+
+// Forca a Edge Function a executar na mesma regiao do banco (ver .env.example) em vez da
+// regiao mais proxima de quem chama -- evita que cada consulta SQL dentro da function pague
+// um round-trip extra entre o Brasil e a regiao do banco. Sem a env var, no-op (URL inalterada).
+export function withFunctionsRegion(url) {
+  return functionsRegion ? `${url}?forceFunctionRegion=${functionsRegion}` : url;
+}
+
 const REMEMBER_STORAGE_KEY = 'app.rememberMe';
 const EMAIL_STORAGE_KEY = 'app.rememberedEmail';
 

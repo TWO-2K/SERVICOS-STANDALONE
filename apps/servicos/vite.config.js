@@ -55,8 +55,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'pwa-icons/*.png'],
       manifest: {
         id: '/',
-        name: process.env.VITE_APP_NAME || 'K-Pit',
-        short_name: process.env.VITE_APP_NAME || 'K-Pit',
+        name: process.env.VITE_APP_NAME || 'HUB',
+        short_name: process.env.VITE_APP_NAME || 'HUB',
         description: 'Atendimento, oficina, financeiro, estoque, compras e RH.',
         start_url: '/',
         scope: '/',
